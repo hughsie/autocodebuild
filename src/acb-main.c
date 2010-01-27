@@ -5,8 +5,11 @@
 
 #include "egg-debug.h"
 
+/**
+ * acb_main_process_project_name:
+ **/
 static gboolean
-acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboolean clean, gboolean update, gboolean build)
+acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboolean clean, gboolean update, gboolean build, const gchar *rpmbuild_path)
 {
 	gchar *path = NULL;
 	gboolean ret = TRUE;
@@ -28,7 +31,7 @@ acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboole
 	/* operate on folder */
 	project = acb_project_new ();
 	acb_project_set_path (project, path);
-	acb_project_set_rpmbuild_path (project, "/home/hughsie/rpmbuild");
+	acb_project_set_rpmbuild_path (project, rpmbuild_path);
 	if (clean) {
 		ret = acb_project_clean (project, &error);
 		if (!ret) {
@@ -76,6 +79,9 @@ acb_main_ensure_has_path (const gchar *path)
 	return (retval == 0);
 }
 
+/**
+ * acb_main_get_code_dir:
+ **/
 static gchar *
 acb_main_get_code_dir ()
 {
@@ -116,10 +122,48 @@ out:
 	return code_dir;
 }
 
+/**
+ * acb_main_get_rpmbuild_dir:
+ **/
+static gchar *
+acb_main_get_rpmbuild_dir ()
+{
+	gchar *data = NULL;
+	gchar *macros = NULL;
+	gchar *rpmbuild_path = NULL;
+	gchar **lines = NULL;
+	gboolean ret;
+	guint i;
+
+	/* get the data from the rpmmacros override */
+	macros = g_build_path (g_get_home_dir (), ".rpmmacros", NULL);
+	ret = g_file_get_contents (macros, &data, NULL, NULL);
+	if (!ret) {
+		rpmbuild_path = g_build_filename (g_get_home_dir (), "rpmbuild", NULL);
+		goto out;
+	}
+
+	/* find the right line */
+	lines = g_strsplit (data, "\n", -1);
+	for (i=0; lines[i] != NULL; i++) {
+		if (!g_str_has_prefix (lines[i], "%_topdir"))
+			continue;
+		lines[i]+=8;
+		g_strstrip (lines[i]);
+		rpmbuild_path = g_strdup (lines[i]);
+		break;
+	}
+
+out:
+	g_free (data);
+	g_free (macros);
+	g_strfreev (lines);
+	return rpmbuild_path;
+}
+
 int
 main (int argc, char **argv)
 {
-//	gboolean ret;
 	GError *error = NULL;
 	GDir *dir = NULL;
 	gchar *options_help = NULL;
@@ -130,6 +174,7 @@ main (int argc, char **argv)
 	gboolean build = FALSE;
 	gchar **files = NULL;
 	gchar *code_path = NULL;
+	gchar *rpmbuild_path = NULL;
 	guint i;
 	const gchar *filename;
 	gchar *dirname = NULL;
@@ -161,6 +206,9 @@ main (int argc, char **argv)
 	/* get the code location */
 	code_path = acb_main_get_code_dir ();
 
+	/* get the code location */
+	rpmbuild_path = acb_main_get_rpmbuild_dir ();
+
 	/* didn't specify any options */
 	if (files == NULL && !clean && !update && !build) {
 		g_print ("%s\n", options_help);
@@ -174,10 +222,10 @@ main (int argc, char **argv)
 			basename = g_path_get_basename (files[i]);
 			if (g_strcmp0 (dirname, ".") == 0) {
 				/* we didn't specificy a directory */
-				acb_main_process_project_name (code_path, basename, clean, update, build);
+				acb_main_process_project_name (code_path, basename, clean, update, build, rpmbuild_path);
 			} else {
 				/* we specified the full directory */
-				acb_main_process_project_name (dirname, basename, clean, update, build);
+				acb_main_process_project_name (dirname, basename, clean, update, build, rpmbuild_path);
 			}
 		}
 	} else {
@@ -191,13 +239,14 @@ main (int argc, char **argv)
 
 		/* find each */
 		while ((filename = g_dir_read_name (dir)))
-			acb_main_process_project_name (code_path, filename, clean, update, build);
+			acb_main_process_project_name (code_path, filename, clean, update, build, rpmbuild_path);
 		g_dir_close (dir);
 	}
 out:
 	g_free (dirname);
 	g_free (basename);
 	g_free (code_path);
+	g_free (rpmbuild_path);
 	g_free (options_help);
 	g_strfreev (files);
 	return 0;

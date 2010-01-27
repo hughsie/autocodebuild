@@ -16,7 +16,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -324,8 +324,13 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 
 	argv = g_strsplit (command_line, " ", -1);
 	ret = g_spawn_sync (priv->path, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &standard_out, &standard_error, &exit_status, error);
+	if (!ret)
+		goto out;
+
+	/* fail if we got the wrong retval */
 	if (exit_status != 0) {
-		g_print ("%s: %s\n%s", "Failed to run", command_line, standard_error);
+		ret = FALSE;
+		g_set_error (error, 1, 0, "%s: %s\n%s", "Failed to run", command_line, standard_error);
 		goto out;
 	}
 
@@ -627,6 +632,7 @@ acb_project_build (AcbProject *project, GError **error)
 	gchar *alphatag = NULL;
 	gchar *src = NULL;
 	gchar *dest = NULL;
+	gchar *spec = NULL;
 	gchar *standard_out = NULL;
 	gchar *cmdline = NULL;
 	gchar *cmdline2 = NULL;
@@ -641,6 +647,15 @@ acb_project_build (AcbProject *project, GError **error)
 	/* disabled */
 	if (priv->disabled)
 		goto out;
+
+	/* check we've got a spec file */
+	spec = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->package_name);
+	acb_project_ensure_has_path (spec);
+	ret = g_file_test (spec, G_FILE_TEST_EXISTS);
+	if (!ret) {
+		g_set_error (error, 1, 0, "spec file was not found: %s", spec);
+		goto out;
+	}
 
 	/* first build locally */
 	ret = acb_project_run (project, "make", ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
@@ -678,9 +693,8 @@ acb_project_build (AcbProject *project, GError **error)
 		alphatag = g_strdup_printf (".%scvs", shortdate);
 
 	/* do the replacement */
-	src = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->package_name);
 	cmdline = g_strdup_printf ("sed \"s/#VERSION#/%s/g;s/#BUILD#/%i/g;s/#ALPHATAG#/%s/g;s/#LONGDATE#/%s/g\" %s",
-				   priv->version, priv->release, alphatag, longdate, src);
+				   priv->version, priv->release, alphatag, longdate, spec);
 	ret = g_spawn_command_line_sync (cmdline, &standard_out, NULL, NULL, error);
 	if (!ret)
 		goto out;
@@ -736,6 +750,7 @@ out:
 	g_free (alphatag);
 	g_free (dest);
 	g_free (src);
+	g_free (spec);
 	g_free (rpmbuild_rpms);
 	g_free (rpmbuild_srpms);
 	g_free (rpmbuild_sources);

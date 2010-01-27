@@ -44,6 +44,8 @@ typedef enum
 
 typedef enum {
 	ACB_PROJECT_KIND_BUILDING_LOCALLY,
+	ACB_PROJECT_KIND_BUILDING_PACKAGE,
+	ACB_PROJECT_KIND_COPYING_TARBALL,
 	ACB_PROJECT_KIND_CREATING_TARBALL,
 	ACB_PROJECT_KIND_CLEANING,
 	ACB_PROJECT_KIND_GARBAGE_COLLECTING,
@@ -217,6 +219,10 @@ acb_project_kind_to_title (AcbProjectKind kind)
 {
 	if (kind == ACB_PROJECT_KIND_BUILDING_LOCALLY)
 		return "Building locally";
+	if (kind == ACB_PROJECT_KIND_BUILDING_PACKAGE)
+		return "Building package";
+	if (kind == ACB_PROJECT_KIND_COPYING_TARBALL)
+		return "Copying tarball";
 	if (kind == ACB_PROJECT_KIND_CREATING_TARBALL)
 		return "Creating tarball";
 	if (kind == ACB_PROJECT_KIND_CLEANING)
@@ -242,6 +248,10 @@ acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 
 	if (kind == ACB_PROJECT_KIND_BUILDING_LOCALLY)
 		return g_build_filename (priv->path, ".acb", "make.log", NULL);
+	if (kind == ACB_PROJECT_KIND_BUILDING_PACKAGE)
+		return g_build_filename (priv->path, ".acb", "build.log", NULL);
+	if (kind == ACB_PROJECT_KIND_COPYING_TARBALL)
+		return g_build_filename (priv->path, ".acb", "copy.log", NULL);
 	if (kind == ACB_PROJECT_KIND_CREATING_TARBALL)
 		return g_build_filename (priv->path, ".acb", "dist.log", NULL);
 	if (kind == ACB_PROJECT_KIND_CLEANING)
@@ -312,7 +322,7 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 		else
 			g_print ("%s\n", standard_out);
 	} else {
-		g_print ("%s\n", "Done!");
+		g_print ("\t%s\n", "Done");
 	}
 
 out:
@@ -427,7 +437,6 @@ acb_project_directory_remove_contents (const gchar *directory)
 	/* find each */
 	while ((filename = g_dir_read_name (dir))) {
 		src = g_build_filename (directory, filename, NULL);
-		egg_debug ("file found in %s, deleting", directory);
 		retval = g_unlink (src);
 		if (retval != 0)
 			egg_warning ("failed to delete %s", src);
@@ -439,12 +448,73 @@ out:
 }
 
 /**
+ * acb_project_bump_release:
+ **/
+static gboolean
+acb_project_bump_release (AcbProject *project, GError **error)
+{
+	gchar *data = NULL;
+	gchar *defaults = NULL;
+	GKeyFile *file = NULL;
+	gboolean ret = TRUE;
+	AcbProjectPrivate *priv = project->priv;
+
+	/* inc */
+	priv->release++;
+
+	/* load file */
+	file = g_key_file_new ();
+	defaults = g_build_filename (priv->path, ".acb", "defaults.conf", NULL);
+
+	/* does not yet exist */
+	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
+		ret = g_file_set_contents (defaults, "#auto-generated", -1, error);
+		if (!ret)
+			goto out;
+	}
+
+	/* load latest copy */
+	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, error);
+	if (!ret)
+		goto out;
+
+	/* set new value */
+	g_key_file_set_integer (file, "defaults", "Release", priv->release);
+
+	/* push to text */
+	data = g_key_file_to_data (file, NULL, error);
+	if (data == NULL) {
+		ret = FALSE;
+		goto out;
+	}
+
+	/* save to file */
+	ret = g_file_set_contents (defaults, data, -1, error);
+	if (!ret)
+		goto out;
+out:
+	g_free (data);
+	g_free (defaults);
+	g_key_file_free (file);
+	return ret;
+}
+
+/**
  * acb_project_build:
  **/
 gboolean
 acb_project_build (AcbProject *project, GError **error)
 {
 	gboolean ret = TRUE;
+	GDate *date;
+	gchar shortdate[128];
+	gchar longdate[128];
+	gchar *alphatag = NULL;
+	gchar *src = NULL;
+	gchar *dest = NULL;
+	gchar *standard_out = NULL;
+	gchar *cmdline = NULL;
+	gchar *cmdline2 = NULL;
 	AcbProjectPrivate *priv = project->priv;
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
@@ -467,18 +537,90 @@ acb_project_build (AcbProject *project, GError **error)
 	g_print ("%s...", "Cleaning previous package files");
 	acb_project_directory_remove_contents ("/home/hughsie/rpmbuild/SRPMS");
 	acb_project_directory_remove_contents ("/home/hughsie/rpmbuild/RPMS");
-	g_print ("%s\n", "Done");
+	g_print ("\t%s\n", "Done");
 
-	/* TODO: copy tarball priv->packagename,priv->version.tar.* to ${rpmbuild}/SOURCES */
-	/* TODO: sed "s/#VERSION#/$version/g;s/#BUILD#/$epoch/g;s/#ALPHATAG#/$alphatag/g;s/#LONGDATE#/$longdate/g" $specfile > ${rpmbuild}/SPECS/${name}.spec
-		shortdate=`date +20%y%m%d`			# 20060501
-		longdate=`date "+%a %b %d 20%y"`		# Wed May 01 2006
-		alphatag=".${shortdate}${vcs}"			# .20070409svn
-	 */
-	/* TODO: rpmbuild -ba "${rpmbuild}/SPECS/${name}.spec" &> $buildlog */
-	/* TODO: remove generated file rm -f ${rpmbuild}/SPECS/${name}.spec */
+	/* get the date formats */
+	date = g_date_new ();
+	g_date_set_time_t (date, time (NULL));
+	g_date_strftime (shortdate, 128, "%Y%m%d", date); /* 20060501 */
+	g_date_strftime (longdate, 128, "%a %b %d %Y", date); /* Wed May 01 2006 */
+	g_date_free (date);
+
+	/* get the alpha tag */
+	if (priv->rcs == ACB_PROJECT_RCS_GIT)
+		alphatag = g_strdup_printf (".%sgit", shortdate); /* .20070409svn */
+	if (priv->rcs == ACB_PROJECT_RCS_SVN)
+		alphatag = g_strdup_printf (".%ssvn", shortdate);
+	if (priv->rcs == ACB_PROJECT_RCS_CVS)
+		alphatag = g_strdup_printf (".%scvs", shortdate);
+
+	/* do the replacement */
+	src = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->packagename);
+	cmdline = g_strdup_printf ("sed \"s/#VERSION#/%s/g;s/#BUILD#/%i/g;s/#ALPHATAG#/%s/g;s/#LONGDATE#/%s/g\" %s",
+				   priv->version, priv->release, alphatag, longdate, src);
+	ret = g_spawn_command_line_sync (cmdline, &standard_out, NULL, NULL, error);
+	if (!ret)
+		goto out;
+
+	/* save to the new file */
+	dest = g_strdup_printf ("%s/%s.spec", "/home/hughsie/rpmbuild/SPECS", priv->packagename);
+	ret = g_file_set_contents (dest, standard_out, -1, error);
+	if (!ret)
+		goto out;
+
+	/* copy tarball .tar.* build root */
+	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz /home/hughsie/rpmbuild/SOURCES", priv->path, priv->packagename, priv->version);
+	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_COPYING_TARBALL, error);
+	if (!ret)
+		goto out;
+
+	/* build the rpm */
+	cmdline2 = g_strdup_printf ("rpmbuild -ba %s", dest);
+	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_BUILDING_PACKAGE, error);
+	if (!ret)
+		goto out;
+
+	/* increment the release */
+	g_print ("%s...", "Incrementing release");
+	ret = acb_project_bump_release (project, error);
+	if (!ret)
+		goto out;
+	g_print ("\t%s\n", "Done");
+
+	/* delete old versions in repo directory */
+	g_print ("%s...", "Deleting old versions");
+	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/i386/%s*.rpm", priv->packagename);
+	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
+	if (!ret)
+		goto out;
+	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->packagename);
+	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
+	if (!ret)
+		goto out;
+	g_print ("\t%s\n", "Done");
+
+	/* copy into repo directory */
+	g_print ("%s...", "Copying new version");
+	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/RPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/i386", priv->packagename);
+	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
+	if (!ret)
+		goto out;
+	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/SRPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS", priv->packagename);
+	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
+	if (!ret)
+		goto out;
+	g_print ("\t%s\n", "Done");
+
+	/* remove generated file */
+	g_unlink (dest);
 
 out:
+	g_free (standard_out);
+	g_free (cmdline);
+	g_free (cmdline2);
+	g_free (alphatag);
+	g_free (dest);
+	g_free (src);
 	return ret;
 }
 

@@ -296,6 +296,7 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 	gint exit_status;
 	const gchar *title;
 	gchar *logfile = NULL;
+	gchar *diffstat = NULL;
 	AcbProjectPrivate *priv = project->priv;
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
@@ -321,10 +322,13 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 
 	/* show any updates */
 	if (kind == ACB_PROJECT_KIND_SHOWING_UPDATES) {
-		if (standard_out[0] == '\0')
+		if (standard_out[0] == '\0') {
 			g_print ("%s\n", "No updates");
-		else
+		} else {
+			diffstat = g_strdup_printf ("diffstat %s", logfile);
+			g_spawn_command_line_sync (diffstat, &standard_out, NULL, NULL, NULL);
 			g_print ("%s\n", standard_out);
+		}
 	} else {
 		g_print ("\t%s\n", "Done");
 	}
@@ -334,6 +338,7 @@ out:
 	g_free (standard_out);
 	g_free (standard_error);
 	g_free (logfile);
+	g_free (diffstat);
 	return ret;
 }
 
@@ -390,7 +395,7 @@ acb_project_update (AcbProject *project, GError **error)
 			goto out;
 
 		/* show differences */
-		ret = acb_project_run (project, "git shortlog origin/master..master", ACB_PROJECT_KIND_SHOWING_UPDATES, error);
+		ret = acb_project_run (project, "git diff master..origin/master", ACB_PROJECT_KIND_SHOWING_UPDATES, error);
 		if (!ret)
 			goto out;
 	}

@@ -59,8 +59,9 @@ struct _AcbProjectPrivate
 {
 	gchar			*path;
 	gchar			*basename;
-	gchar			*packagename;
+	gchar			*package_name;
 	gchar			*version;
+	gchar			*tarball_name;
 	gboolean		 disabled;
 	guint			 release;
 	AcbProjectRcs		 rcs;
@@ -110,8 +111,9 @@ acb_project_load_defaults (AcbProject *project)
 	}
 
 	/* get values */
-	priv->packagename = g_key_file_get_string (file, "defaults", "PackageName", NULL);
+	priv->package_name = g_key_file_get_string (file, "defaults", "PackageName", NULL);
 	priv->version = g_key_file_get_string (file, "defaults", "Version", NULL);
+	priv->tarball_name = g_key_file_get_string (file, "defaults", "TarballName", NULL);
 	priv->disabled = g_key_file_get_boolean (file, "defaults", "Disabled", NULL);
 	priv->release = g_key_file_get_integer (file, "defaults", "Release", NULL);
 out:
@@ -206,8 +208,10 @@ acb_project_set_path (AcbProject *project, const gchar *path)
 	acb_project_get_from_config_h (project);
 
 	/* generate fallbacks */
-	if (priv->packagename == NULL)
-		priv->packagename = g_strdup (priv->basename);
+	if (priv->package_name == NULL)
+		priv->package_name = g_strdup (priv->basename);
+	if (priv->tarball_name == NULL)
+		priv->tarball_name = g_strdup (priv->package_name);
 	return TRUE;
 }
 
@@ -555,7 +559,7 @@ acb_project_build (AcbProject *project, GError **error)
 		alphatag = g_strdup_printf (".%scvs", shortdate);
 
 	/* do the replacement */
-	src = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->packagename);
+	src = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->package_name);
 	cmdline = g_strdup_printf ("sed \"s/#VERSION#/%s/g;s/#BUILD#/%i/g;s/#ALPHATAG#/%s/g;s/#LONGDATE#/%s/g\" %s",
 				   priv->version, priv->release, alphatag, longdate, src);
 	ret = g_spawn_command_line_sync (cmdline, &standard_out, NULL, NULL, error);
@@ -563,13 +567,13 @@ acb_project_build (AcbProject *project, GError **error)
 		goto out;
 
 	/* save to the new file */
-	dest = g_strdup_printf ("%s/%s.spec", "/home/hughsie/rpmbuild/SPECS", priv->packagename);
+	dest = g_strdup_printf ("%s/%s.spec", "/home/hughsie/rpmbuild/SPECS", priv->package_name);
 	ret = g_file_set_contents (dest, standard_out, -1, error);
 	if (!ret)
 		goto out;
 
 	/* copy tarball .tar.* build root */
-	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz /home/hughsie/rpmbuild/SOURCES", priv->path, priv->packagename, priv->version);
+	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz /home/hughsie/rpmbuild/SOURCES", priv->path, priv->tarball_name, priv->version);
 	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_COPYING_TARBALL, error);
 	if (!ret)
 		goto out;
@@ -589,11 +593,11 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* delete old versions in repo directory */
 	g_print ("%s...", "Deleting old versions");
-	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/i386/%s*.rpm", priv->packagename);
+	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/i386/%s*.rpm", priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
-	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->packagename);
+	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
@@ -601,11 +605,11 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* copy into repo directory */
 	g_print ("%s...", "Copying new version");
-	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/RPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/i386", priv->packagename);
+	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/RPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/i386", priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
-	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/SRPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS", priv->packagename);
+	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/SRPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS", priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
@@ -641,7 +645,8 @@ acb_project_finalize (GObject *object)
 	g_free (priv->path);
 	g_free (priv->basename);
 	g_free (priv->version);
-	g_free (priv->packagename);
+	g_free (priv->tarball_name);
+	g_free (priv->package_name);
 
 	G_OBJECT_CLASS (acb_project_parent_class)->finalize (object);
 }
@@ -668,7 +673,8 @@ acb_project_init (AcbProject *project)
 	project->priv->path = NULL;
 	project->priv->basename = NULL;
 	project->priv->version = NULL;
-	project->priv->packagename = NULL;
+	project->priv->tarball_name = NULL;
+	project->priv->package_name = NULL;
 	project->priv->rcs = ACB_PROJECT_RCS_UNKNOWN;
 }
 

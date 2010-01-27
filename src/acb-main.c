@@ -16,10 +16,14 @@ acb_main_process_project_name (const gchar *folder, gboolean clean, gboolean upd
 	path = g_build_filename ("/home/hughsie/Code", folder, NULL);
 
 	/* check exists */
-	if (!g_file_test (path, G_FILE_TEST_IS_DIR)) {
+	if (!g_file_test (path, G_FILE_TEST_EXISTS)) {
 		g_print ("%s: %s\n", "Does not exist", path);
 		goto out;
 	}
+
+	/* check is a directory */
+	if (!g_file_test (path, G_FILE_TEST_IS_DIR))
+		goto out;
 
 	/* operate on folder */
 	project = acb_project_new ();

@@ -282,6 +282,8 @@ acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 		return g_build_filename (priv->path, ".acb", "update.log", NULL);
 	if (kind == ACB_PROJECT_KIND_GETTING_UPDATES)
 		return g_build_filename (priv->path, ".acb", "fetch.log", NULL);
+	if (kind == ACB_PROJECT_KIND_SHOWING_UPDATES)
+		return g_build_filename (priv->path, ".acb", "diffstat.log", NULL);
 	return NULL;
 }
 
@@ -348,9 +350,14 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 		if (standard_out[0] == '\0') {
 			g_print ("%s\n", "No updates");
 		} else {
-			diffstat = g_strdup_printf ("diffstat %s", logfile);
-			g_spawn_command_line_sync (diffstat, &standard_out, NULL, NULL, NULL);
-			g_print ("%s\n", standard_out);
+			diffstat = g_strdup_printf ("/usr/bin/diffstat %s", logfile);
+			ret = g_spawn_command_line_sync (diffstat, &standard_out, NULL, NULL, error);
+			if (!ret)
+				goto out;
+			if (standard_out == NULL || standard_out[0] == '\0')
+				g_print ("Updated (but no diffstat):\n");
+			else
+				g_print ("Updated:\n%s\n", standard_out);
 		}
 	} else {
 		g_print ("\t%s\n", "Done");

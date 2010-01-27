@@ -527,6 +527,94 @@ out:
 }
 
 /**
+ * acb_project_remove_all_files_with_prefix:
+ **/
+static void
+acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *prefix)
+{
+	GDir *dir;
+	GError *error = NULL;
+	const gchar *filename;
+	gchar *src;
+	gint retval;
+
+	/* try to open */
+	dir = g_dir_open (directory, 0, &error);
+	if (dir == NULL) {
+		egg_warning ("cannot open directory: %s", error->message);
+		g_error_free (error);
+		return;
+	}
+
+	/* find each */
+	while ((filename = g_dir_read_name (dir))) {
+		if (!g_str_has_prefix (filename, prefix))
+			continue;
+		src = g_build_filename (directory, filename, NULL);
+		retval = g_unlink (src);
+		if (retval != 0)
+			egg_warning ("failed to delete %s", src);
+		g_free (src);
+	}
+	g_dir_close (dir);
+}
+
+/**
+ * acb_project_copy_file:
+ **/
+static gboolean
+acb_project_copy_file (const gchar *src, const gchar *dest)
+{
+	gboolean ret;
+	gsize length;
+	gchar *data;
+
+	/* just copy data */
+	ret = g_file_get_contents (src, &data, &length, NULL);
+	if (!ret)
+		goto out;
+	ret = g_file_set_contents (dest, data, length, NULL);
+	if (!ret)
+		goto out;
+out:
+	g_free (data);
+	return ret;
+}
+
+/**
+ * acb_project_move_all_files_with_prefix:
+ **/
+static void
+acb_project_move_all_files_with_prefix (const gchar *directory, const gchar *prefix, const gchar *directory_dest)
+{
+	GDir *dir;
+	GError *error = NULL;
+	const gchar *filename;
+	gchar *src;
+	gchar *dest;
+
+	/* try to open */
+	dir = g_dir_open (directory, 0, &error);
+	if (dir == NULL) {
+		egg_warning ("cannot open directory: %s", error->message);
+		g_error_free (error);
+		return;
+	}
+
+	/* find each */
+	while ((filename = g_dir_read_name (dir))) {
+		if (!g_str_has_prefix (filename, prefix))
+			continue;
+		src = g_build_filename (directory, filename, NULL);
+		dest = g_build_filename (directory_dest, filename, NULL);
+		acb_project_copy_file (src, dest);
+		g_free (src);
+		g_free (dest);
+	}
+	g_dir_close (dir);
+}
+
+/**
  * acb_project_build:
  **/
 gboolean
@@ -624,26 +712,18 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* delete old versions in repo directory */
 	g_print ("%s...", "Deleting old versions");
-	cmdline2 = g_strdup_printf ("rm %s/REPOS/fedora/12/i386/%s*.rpm", priv->rpmbuild_path, priv->package_name);
-	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
-	if (!ret)
-		goto out;
-	cmdline2 = g_strdup_printf ("rm %s/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->rpmbuild_path, priv->package_name);
-	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
-	if (!ret)
-		goto out;
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/12/i386", NULL);
+	acb_project_remove_all_files_with_prefix (src, priv->package_name);
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/12/SRPMS", NULL);
+	acb_project_remove_all_files_with_prefix (src, priv->package_name);
 	g_print ("\t%s\n", "Done");
 
 	/* copy into repo directory */
 	g_print ("%s...", "Copying new version");
-	cmdline2 = g_strdup_printf ("mv %s/%s-*.rpm %s/REPOS/fedora/12/i386", rpmbuild_rpms, priv->package_name, priv->rpmbuild_path);
-	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
-	if (!ret)
-		goto out;
-	cmdline2 = g_strdup_printf ("mv %s/%s-*.rpm %s/REPOS/fedora/12/SRPMS", rpmbuild_srpms, priv->package_name, priv->rpmbuild_path);
-	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
-	if (!ret)
-		goto out;
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/12/i386", NULL);
+	acb_project_move_all_files_with_prefix (rpmbuild_rpms, priv->package_name, dest);
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/12/SRPMS", NULL);
+	acb_project_move_all_files_with_prefix (rpmbuild_srpms, priv->package_name, dest);
 	g_print ("\t%s\n", "Done");
 
 	/* remove generated file */

@@ -58,6 +58,7 @@ typedef enum {
 struct _AcbProjectPrivate
 {
 	gchar			*path;
+	gchar			*rpmbuild_path;
 	gchar			*basename;
 	gchar			*package_name;
 	gchar			*version;
@@ -174,6 +175,23 @@ out:
 	g_free (contents);
 	g_strfreev (split);
 	return ret;
+}
+
+/**
+ * acb_project_set_rpmbuild_path:
+ **/
+gboolean
+acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
+{
+	AcbProjectPrivate *priv = project->priv;
+
+	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
+	g_return_val_if_fail (path != NULL, FALSE);
+
+	g_free (priv->rpmbuild_path);
+	priv->rpmbuild_path = g_strdup (path);
+
+	return TRUE;
 }
 
 /**
@@ -524,6 +542,10 @@ acb_project_build (AcbProject *project, GError **error)
 	gchar *standard_out = NULL;
 	gchar *cmdline = NULL;
 	gchar *cmdline2 = NULL;
+	gchar *rpmbuild_rpms = NULL;
+	gchar *rpmbuild_srpms = NULL;
+	gchar *rpmbuild_sources = NULL;
+	gchar *rpmbuild_specs = NULL;
 	AcbProjectPrivate *priv = project->priv;
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
@@ -544,15 +566,19 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* clean previous build files */
 	g_print ("%s...", "Cleaning previous package files");
-	acb_project_directory_remove_contents ("/home/hughsie/rpmbuild/SRPMS");
-	acb_project_directory_remove_contents ("/home/hughsie/rpmbuild/RPMS");
+	rpmbuild_rpms = g_build_filename (priv->rpmbuild_path, "RPMS", NULL);
+	rpmbuild_srpms = g_build_filename (priv->rpmbuild_path, "SRPMS", NULL);
+	rpmbuild_sources = g_build_filename (priv->rpmbuild_path, "SOURCES", NULL);
+	rpmbuild_specs = g_build_filename (priv->rpmbuild_path, "SPECS", NULL);
+	acb_project_directory_remove_contents (rpmbuild_rpms);
+	acb_project_directory_remove_contents (rpmbuild_srpms);
 	g_print ("\t%s\n", "Done");
 
 	/* get the date formats */
 	date = g_date_new ();
 	g_date_set_time_t (date, time (NULL));
-	g_date_strftime (shortdate, 128, "%Y%m%d", date); /* 20060501 */
-	g_date_strftime (longdate, 128, "%a %b %d %Y", date); /* Wed May 01 2006 */
+	g_date_strftime (shortdate, 128, "%Y%m%d", date);	/* 20060501 */
+	g_date_strftime (longdate, 128, "%a %b %d %Y", date);	/* Wed May 01 2006 */
 	g_date_free (date);
 
 	/* get the alpha tag */
@@ -572,13 +598,13 @@ acb_project_build (AcbProject *project, GError **error)
 		goto out;
 
 	/* save to the new file */
-	dest = g_strdup_printf ("%s/%s.spec", "/home/hughsie/rpmbuild/SPECS", priv->package_name);
+	dest = g_strdup_printf ("%s/%s.spec", rpmbuild_specs, priv->package_name);
 	ret = g_file_set_contents (dest, standard_out, -1, error);
 	if (!ret)
 		goto out;
 
 	/* copy tarball .tar.* build root */
-	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz /home/hughsie/rpmbuild/SOURCES", priv->path, priv->tarball_name, priv->version);
+	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz %s", priv->path, priv->tarball_name, priv->version, rpmbuild_sources);
 	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_COPYING_TARBALL, error);
 	if (!ret)
 		goto out;
@@ -598,11 +624,11 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* delete old versions in repo directory */
 	g_print ("%s...", "Deleting old versions");
-	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/i386/%s*.rpm", priv->package_name);
+	cmdline2 = g_strdup_printf ("rm %s/REPOS/fedora/12/i386/%s*.rpm", priv->rpmbuild_path, priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
-	cmdline2 = g_strdup_printf ("rm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->package_name);
+	cmdline2 = g_strdup_printf ("rm %s/REPOS/fedora/12/SRPMS/%s*.src.rpm", priv->rpmbuild_path, priv->package_name);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
@@ -610,11 +636,11 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* copy into repo directory */
 	g_print ("%s...", "Copying new version");
-	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/RPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/i386", priv->package_name);
+	cmdline2 = g_strdup_printf ("mv %s/%s-*.rpm %s/REPOS/fedora/12/i386", rpmbuild_rpms, priv->package_name, priv->rpmbuild_path);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
-	cmdline2 = g_strdup_printf ("mv /home/hughsie/rpmbuild/SRPMS/%s-*.rpm /home/hughsie/rpmbuild/REPOS/fedora/12/SRPMS", priv->package_name);
+	cmdline2 = g_strdup_printf ("mv %s/%s-*.rpm %s/REPOS/fedora/12/SRPMS", rpmbuild_srpms, priv->package_name, priv->rpmbuild_path);
 	ret = g_spawn_command_line_sync (cmdline2, NULL, NULL, NULL, error);
 	if (!ret)
 		goto out;
@@ -630,6 +656,10 @@ out:
 	g_free (alphatag);
 	g_free (dest);
 	g_free (src);
+	g_free (rpmbuild_rpms);
+	g_free (rpmbuild_srpms);
+	g_free (rpmbuild_sources);
+	g_free (rpmbuild_specs);
 	return ret;
 }
 
@@ -648,6 +678,7 @@ acb_project_finalize (GObject *object)
 	priv = project->priv;
 
 	g_free (priv->path);
+	g_free (priv->rpmbuild_path);
 	g_free (priv->basename);
 	g_free (priv->version);
 	g_free (priv->tarball_name);
@@ -676,6 +707,7 @@ acb_project_init (AcbProject *project)
 {
 	project->priv = ACB_PROJECT_GET_PRIVATE (project);
 	project->priv->path = NULL;
+	project->priv->rpmbuild_path = NULL;
 	project->priv->basename = NULL;
 	project->priv->version = NULL;
 	project->priv->tarball_name = NULL;

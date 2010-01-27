@@ -28,6 +28,7 @@ acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboole
 	/* operate on folder */
 	project = acb_project_new ();
 	acb_project_set_path (project, path);
+	acb_project_set_rpmbuild_path (project, "/home/hughsie/rpmbuild");
 	if (clean) {
 		ret = acb_project_clean (project, &error);
 		if (!ret) {

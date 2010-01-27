@@ -49,8 +49,10 @@ struct _AcbProjectClass
 };
 
 GType		 acb_project_get_type		(void);
-AcbProject	*acb_project_new			(void);
+AcbProject	*acb_project_new		(void);
 gboolean	 acb_project_set_path		(AcbProject		*project,
+						 const gchar		*path);
+gboolean	 acb_project_set_rpmbuild_path	(AcbProject		*project,
 						 const gchar		*path);
 gboolean	 acb_project_clean		(AcbProject		*project,
 						 GError			**error);

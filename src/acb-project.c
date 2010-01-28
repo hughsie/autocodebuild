@@ -424,6 +424,8 @@ acb_project_update (AcbProject *project, GError **error)
 		if (!ret)
 			goto out;
 
+		/* TODO: don't assume master */
+
 		/* show differences */
 		ret = acb_project_run (project, "git diff master..origin/master", ACB_PROJECT_KIND_SHOWING_UPDATES, error);
 		if (!ret)

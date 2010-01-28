@@ -148,9 +148,8 @@ acb_main_get_rpmbuild_dir ()
 	for (i=0; lines[i] != NULL; i++) {
 		if (!g_str_has_prefix (lines[i], "%_topdir"))
 			continue;
-		lines[i]+=8;
-		g_strstrip (lines[i]);
-		rpmbuild_path = g_strdup (lines[i]);
+		rpmbuild_path = g_strdup (lines[i]+8);
+		g_strstrip (rpmbuild_path);
 		break;
 	}
 

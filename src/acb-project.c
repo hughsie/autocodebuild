@@ -230,6 +230,16 @@ acb_project_set_path (AcbProject *project, const gchar *path)
 		priv->package_name = g_strdup (priv->basename);
 	if (priv->tarball_name == NULL)
 		priv->tarball_name = g_strdup (priv->package_name);
+
+	/* debugging */
+	egg_debug ("path:         %s", priv->path);
+	egg_debug ("basename:     %s", priv->basename);
+	egg_debug ("package name: %s", priv->package_name);
+	egg_debug ("tarball name: %s", priv->tarball_name);
+	egg_debug ("version:      %s", priv->version);
+	egg_debug ("release:      %i", priv->release);
+	egg_debug ("disabled:     %i", priv->disabled);
+
 	return TRUE;
 }
 

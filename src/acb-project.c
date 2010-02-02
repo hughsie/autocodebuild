@@ -639,6 +639,21 @@ acb_project_move_all_files_with_prefix (const gchar *directory, const gchar *pre
 }
 
 /**
+ * acb_project_make:
+ **/
+gboolean
+acb_project_make (AcbProject *project, GError **error)
+{
+	gboolean ret = TRUE;
+
+	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
+
+	/* first build locally */
+	ret = acb_project_run (project, "make", ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
+	return ret;
+}
+
+/**
  * acb_project_build:
  **/
 gboolean
@@ -651,6 +666,7 @@ acb_project_build (AcbProject *project, GError **error)
 	gchar *alphatag = NULL;
 	gchar *src = NULL;
 	gchar *dest = NULL;
+	gchar *tarball = NULL;
 	gchar *spec = NULL;
 	gchar *standard_out = NULL;
 	gchar *cmdline = NULL;
@@ -675,11 +691,6 @@ acb_project_build (AcbProject *project, GError **error)
 		g_set_error (error, 1, 0, "spec file was not found: %s", spec);
 		goto out;
 	}
-
-	/* first build locally */
-	ret = acb_project_run (project, "make", ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
-	if (!ret)
-		goto out;
 
 	/* then make tarball */
 	ret = acb_project_run (project, "make dist", ACB_PROJECT_KIND_CREATING_TARBALL, error);
@@ -706,9 +717,9 @@ acb_project_build (AcbProject *project, GError **error)
 	/* get the alpha tag */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT)
 		alphatag = g_strdup_printf (".%sgit", shortdate); /* .20070409svn */
-	if (priv->rcs == ACB_PROJECT_RCS_SVN)
+	else if (priv->rcs == ACB_PROJECT_RCS_SVN)
 		alphatag = g_strdup_printf (".%ssvn", shortdate);
-	if (priv->rcs == ACB_PROJECT_RCS_CVS)
+	else if (priv->rcs == ACB_PROJECT_RCS_CVS)
 		alphatag = g_strdup_printf (".%scvs", shortdate);
 
 	/* do the replacement */
@@ -724,8 +735,13 @@ acb_project_build (AcbProject *project, GError **error)
 	if (!ret)
 		goto out;
 
+	/* get the tarball */
+	tarball = g_strdup_printf ("%s/%s-%s.tar.gz", priv->path, priv->tarball_name, priv->version);
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS))
+		tarball = g_strdup_printf ("%s/%s-%s.tar.bz2", priv->path, priv->tarball_name, priv->version);
+
 	/* copy tarball .tar.* build root */
-	cmdline2 = g_strdup_printf ("cp %s/%s-%s.tar.gz %s", priv->path, priv->tarball_name, priv->version, rpmbuild_sources);
+	cmdline2 = g_strdup_printf ("cp %s %s", tarball, rpmbuild_sources);
 	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_COPYING_TARBALL, error);
 	if (!ret)
 		goto out;
@@ -764,6 +780,7 @@ acb_project_build (AcbProject *project, GError **error)
 
 out:
 	g_free (standard_out);
+	g_free (tarball);
 	g_free (cmdline);
 	g_free (cmdline2);
 	g_free (alphatag);

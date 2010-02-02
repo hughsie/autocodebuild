@@ -60,6 +60,8 @@ gboolean	 acb_project_update		(AcbProject		*project,
 						 GError			**error);
 gboolean	 acb_project_build		(AcbProject		*project,
 						 GError			**error);
+gboolean	 acb_project_make		(AcbProject		*project,
+						 GError			**error);
 
 G_END_DECLS
 

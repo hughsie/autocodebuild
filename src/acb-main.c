@@ -9,7 +9,7 @@
  * acb_main_process_project_name:
  **/
 static gboolean
-acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboolean clean, gboolean update, gboolean build, const gchar *rpmbuild_path)
+acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboolean clean, gboolean update, gboolean build, gboolean make, const gchar *rpmbuild_path)
 {
 	gchar *path = NULL;
 	gboolean ret = TRUE;
@@ -52,6 +52,14 @@ acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboole
 		ret = acb_project_build (project, &error);
 		if (!ret) {
 			g_print ("Failed to build: %s\n", error->message);
+			g_error_free (error);
+			goto out;
+		}
+	}
+	if (make) {
+		ret = acb_project_make (project, &error);
+		if (!ret) {
+			g_print ("Failed to make: %s\n", error->message);
 			g_error_free (error);
 			goto out;
 		}
@@ -171,6 +179,7 @@ main (int argc, char **argv)
 	gboolean clean = FALSE;
 	gboolean update = FALSE;
 	gboolean build = FALSE;
+	gboolean make = FALSE;
 	gchar **files = NULL;
 	gchar *code_path = NULL;
 	gchar *rpmbuild_path = NULL;
@@ -188,6 +197,8 @@ main (int argc, char **argv)
 			"Update projects", NULL},
 		{ "build", 'b', 0, G_OPTION_ARG_NONE, &build,
 			"Build projects", NULL},
+		{ "make", 'm', 0, G_OPTION_ARG_NONE, &build,
+			"Make projects", NULL},
 		{ G_OPTION_REMAINING, '\0', 0, G_OPTION_ARG_FILENAME_ARRAY, &files,
 			"Projects", NULL },
 		{ NULL}
@@ -209,7 +220,7 @@ main (int argc, char **argv)
 	rpmbuild_path = acb_main_get_rpmbuild_dir ();
 
 	/* didn't specify any options */
-	if (files == NULL && !clean && !update && !build) {
+	if (files == NULL && !clean && !update && !build && !make) {
 		g_print ("%s\n", options_help);
 		goto out;
 	}
@@ -221,10 +232,10 @@ main (int argc, char **argv)
 			basename = g_path_get_basename (files[i]);
 			if (g_strcmp0 (dirname, ".") == 0) {
 				/* we didn't specificy a directory */
-				acb_main_process_project_name (code_path, basename, clean, update, build, rpmbuild_path);
+				acb_main_process_project_name (code_path, basename, clean, update, build, make, rpmbuild_path);
 			} else {
 				/* we specified the full directory */
-				acb_main_process_project_name (dirname, basename, clean, update, build, rpmbuild_path);
+				acb_main_process_project_name (dirname, basename, clean, update, build, make, rpmbuild_path);
 			}
 		}
 	} else {
@@ -238,7 +249,7 @@ main (int argc, char **argv)
 
 		/* find each */
 		while ((filename = g_dir_read_name (dir)))
-			acb_main_process_project_name (code_path, filename, clean, update, build, rpmbuild_path);
+			acb_main_process_project_name (code_path, filename, clean, update, build, make, rpmbuild_path);
 		g_dir_close (dir);
 	}
 out:

@@ -175,7 +175,9 @@ main (int argc, char **argv)
 	GDir *dir = NULL;
 	gchar *options_help = NULL;
 	GOptionContext *context;
+	gboolean ret;
 	gboolean verbose = FALSE;
+	gboolean install = FALSE;
 	gboolean clean = FALSE;
 	gboolean update = FALSE;
 	gboolean build = FALSE;
@@ -199,6 +201,8 @@ main (int argc, char **argv)
 			"Build projects", NULL},
 		{ "make", 'm', 0, G_OPTION_ARG_NONE, &build,
 			"Make projects", NULL},
+		{ "install", 'i', 0, G_OPTION_ARG_NONE, &install,
+			"Install projects", NULL},
 		{ G_OPTION_REMAINING, '\0', 0, G_OPTION_ARG_FILENAME_ARRAY, &files,
 			"Projects", NULL },
 		{ NULL}
@@ -220,7 +224,7 @@ main (int argc, char **argv)
 	rpmbuild_path = acb_main_get_rpmbuild_dir ();
 
 	/* didn't specify any options */
-	if (files == NULL && !clean && !update && !build && !make) {
+	if (files == NULL && !clean && !update && !build && !make && !install) {
 		g_print ("%s\n", options_help);
 		goto out;
 	}
@@ -251,6 +255,16 @@ main (int argc, char **argv)
 		while ((filename = g_dir_read_name (dir)))
 			acb_main_process_project_name (code_path, filename, clean, update, build, make, rpmbuild_path);
 		g_dir_close (dir);
+	}
+
+	/* all install */
+	if (install) {
+		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/12/i386/*.rpm", NULL, NULL, NULL, &error);
+		if (!ret) {
+			egg_warning ("cannot install packages: %s", error->message);
+			g_error_free (error);
+			goto out;
+		}
 	}
 out:
 	g_free (dirname);

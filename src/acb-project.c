@@ -737,8 +737,20 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* get the tarball */
 	tarball = g_strdup_printf ("%s/%s-%s.tar.gz", priv->path, priv->tarball_name, priv->version);
-	if (!g_file_test (tarball, G_FILE_TEST_EXISTS))
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
+		egg_debug ("gzipped tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.tar.bz2", priv->path, priv->tarball_name, priv->version);
+	}
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
+		egg_debug ("bzipped tarball %s not found", tarball);
+		tarball = g_strdup_printf ("%s/%s-%s.zip", priv->path, priv->tarball_name, priv->version);
+	}
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
+		egg_debug ("zipped tarball %s not found", tarball);
+		g_set_error (error, 1, 0, "cannot find source in %s", priv->path);
+		ret = FALSE;
+		goto out;
+	}
 
 	/* copy tarball .tar.* build root */
 	cmdline2 = g_strdup_printf ("cp %s %s", tarball, rpmbuild_sources);

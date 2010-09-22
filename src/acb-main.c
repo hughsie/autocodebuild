@@ -199,7 +199,7 @@ main (int argc, char **argv)
 			"Update projects", NULL},
 		{ "build", 'b', 0, G_OPTION_ARG_NONE, &build,
 			"Build projects", NULL},
-		{ "make", 'm', 0, G_OPTION_ARG_NONE, &build,
+		{ "make", 'm', 0, G_OPTION_ARG_NONE, &make,
 			"Make projects", NULL},
 		{ "install", 'i', 0, G_OPTION_ARG_NONE, &install,
 			"Install projects", NULL},

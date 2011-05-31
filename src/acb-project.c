@@ -743,6 +743,10 @@ acb_project_build (AcbProject *project, GError **error)
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
 		egg_debug ("bzipped tarball %s not found", tarball);
+		tarball = g_strdup_printf ("%s/%s-%s.tar.xz", priv->path, priv->tarball_name, priv->version);
+	}
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
+		egg_debug ("xz tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.zip", priv->path, priv->tarball_name, priv->version);
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {

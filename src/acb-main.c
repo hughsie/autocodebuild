@@ -259,7 +259,7 @@ main (int argc, char **argv)
 
 	/* all install */
 	if (install) {
-		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/13/i386/*.rpm", NULL, NULL, NULL, &error);
+		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/15/i386/*.rpm", NULL, NULL, NULL, &error);
 		if (!ret) {
 			egg_warning ("cannot install packages: %s", error->message);
 			g_error_free (error);

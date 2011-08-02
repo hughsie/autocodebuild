@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2009 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2009-2011 Richard Hughes <richard@hughsie.com>
  *
  * Licensed under the GNU General Public License Version 2
  *
@@ -58,8 +58,8 @@ typedef enum {
 struct _AcbProjectPrivate
 {
 	gchar			*path;
+	gchar			*default_code_path;
 	gchar			*rpmbuild_path;
-	gchar			*basename;
 	gchar			*package_name;
 	gchar			*version;
 	gchar			*tarball_name;
@@ -86,6 +86,57 @@ acb_project_path_suffix_exists (AcbProject *project, const gchar *suffix)
 }
 
 /**
+ * acb_project_write_conf:
+ **/
+static gboolean
+acb_project_write_conf (AcbProject *project, GError **error)
+{
+	gchar *data = NULL;
+	gchar *defaults = NULL;
+	GKeyFile *file = NULL;
+	gboolean ret = TRUE;
+	AcbProjectPrivate *priv = project->priv;
+
+	/* load file */
+	file = g_key_file_new ();
+	defaults = g_strdup_printf ("%s/autocodebuild/%s.conf",
+				    g_get_user_data_dir (),
+				    priv->package_name);
+
+	/* does not yet exist */
+	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
+		ret = g_file_set_contents (defaults, "#auto-generated\n\n[defaults]\n", -1, error);
+		if (!ret)
+			goto out;
+	}
+
+	/* load latest copy */
+	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, error);
+	if (!ret)
+		goto out;
+
+	/* set new value */
+	g_key_file_set_integer (file, "defaults", "Release", priv->release);
+
+	/* push to text */
+	data = g_key_file_to_data (file, NULL, error);
+	if (data == NULL) {
+		ret = FALSE;
+		goto out;
+	}
+
+	/* save to file */
+	ret = g_file_set_contents (defaults, data, -1, error);
+	if (!ret)
+		goto out;
+out:
+	g_free (data);
+	g_free (defaults);
+	g_key_file_free (file);
+	return ret;
+}
+
+/**
  * acb_project_load_defaults:
  **/
 static gboolean
@@ -98,9 +149,19 @@ acb_project_load_defaults (AcbProject *project)
 	AcbProjectPrivate *priv = project->priv;
 
 	/* find file, but it's okay not to have a file if the defaults are okay */
-	defaults = g_build_filename (priv->path, ".acb", "defaults.conf", NULL);
-	if (!g_file_test (defaults, G_FILE_TEST_EXISTS))
+	defaults = g_strdup_printf ("%s/%s/%s.conf",
+				    g_get_user_data_dir (),
+				    "autocodebuild",
+				    priv->package_name);
+	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
+		egg_debug ("no %s file, creating", defaults);
+		ret = acb_project_write_conf (project, &error);
+		if (!ret) {
+			egg_warning ("failed to write: %s", error->message);
+			g_error_free (error);
+		}
 		goto out;
+	}
 
 	/* load file */
 	file = g_key_file_new ();
@@ -112,11 +173,12 @@ acb_project_load_defaults (AcbProject *project)
 	}
 
 	/* get values */
-	priv->package_name = g_key_file_get_string (file, "defaults", "PackageName", NULL);
+//	priv->package_name = g_key_file_get_string (file, "defaults", "PackageName", NULL);
 	priv->version = g_key_file_get_string (file, "defaults", "Version", NULL);
 	priv->tarball_name = g_key_file_get_string (file, "defaults", "TarballName", NULL);
 	priv->disabled = g_key_file_get_boolean (file, "defaults", "Disabled", NULL);
 	priv->release = g_key_file_get_integer (file, "defaults", "Release", NULL);
+	priv->path = g_key_file_get_string (file, "defaults", "Path", NULL);
 out:
 	g_free (defaults);
 	if (file != NULL)
@@ -140,8 +202,10 @@ acb_project_get_from_config_h (AcbProject *project)
 
 	/* find file */
 	configh = g_build_filename (priv->path, "config.h", NULL);
-	if (!g_file_test (configh, G_FILE_TEST_EXISTS))
+	if (!g_file_test (configh, G_FILE_TEST_EXISTS)) {
+		egg_warning ("no %s", configh);
 		goto out;
+	}
 
 	/* get contents */
 	ret = g_file_get_contents (configh, &contents, NULL, NULL);
@@ -156,13 +220,15 @@ acb_project_get_from_config_h (AcbProject *project)
 			continue;
 		if (g_str_has_prefix (ptr, "#define ")) {
 			ptr += 8;
-			if (priv->version == NULL && g_str_has_prefix (ptr, "PACKAGE_VERSION")) {
+			if (priv->version == NULL &&
+			    g_str_has_prefix (ptr, "PACKAGE_VERSION")) {
 				ptr += 16;
 				g_strdelimit (ptr, "\"", ' ');
 				g_strstrip (ptr);
 				priv->version = g_strdup (ptr);
 			}
-			if (priv->version == NULL && g_str_has_prefix (ptr, "VERSION")) {
+			if (priv->version == NULL &&
+			    g_str_has_prefix (ptr, "VERSION")) {
 				ptr += 8;
 				g_strdelimit (ptr, "\"", ' ');
 				g_strstrip (ptr);
@@ -180,35 +246,77 @@ out:
 /**
  * acb_project_set_rpmbuild_path:
  **/
-gboolean
+void
 acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
 {
 	AcbProjectPrivate *priv = project->priv;
 
-	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
-	g_return_val_if_fail (path != NULL, FALSE);
+	g_return_if_fail (ACB_IS_PROJECT (project));
+	g_return_if_fail (path != NULL);
 
 	g_free (priv->rpmbuild_path);
 	priv->rpmbuild_path = g_strdup (path);
-
-	return TRUE;
 }
 
 /**
- * acb_project_set_path:
+ * acb_project_set_default_code_path:
  **/
-gboolean
-acb_project_set_path (AcbProject *project, const gchar *path)
+void
+acb_project_set_default_code_path (AcbProject *project, const gchar *path)
 {
 	AcbProjectPrivate *priv = project->priv;
 
-	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
-	g_return_val_if_fail (path != NULL, FALSE);
+	g_return_if_fail (ACB_IS_PROJECT (project));
+	g_return_if_fail (path != NULL);
 
-	g_free (priv->path);
-	g_free (priv->basename);
-	priv->path = g_strdup (path);
-	priv->basename = g_path_get_basename (path);
+	g_free (priv->default_code_path);
+	priv->default_code_path = g_strdup (path);
+}
+
+/**
+ * acb_project_set_name:
+ **/
+void
+acb_project_set_name (AcbProject *project, const gchar *name)
+{
+	gchar *defaults = NULL;
+	AcbProjectPrivate *priv = project->priv;
+
+	g_return_if_fail (ACB_IS_PROJECT (project));
+	g_return_if_fail (name != NULL);
+
+	g_free (priv->package_name);
+	priv->package_name = g_strdup (name);
+
+	/* load defaults */
+	acb_project_load_defaults (project);
+	if (priv->path == NULL) {
+		priv->path = g_build_filename (priv->default_code_path,
+					       priv->package_name,
+					       NULL);
+		egg_debug ("no Path, so falling back to %s", priv->path);
+	}
+
+	/* check is a directory */
+	if (!priv->disabled &&
+	    !g_file_test (priv->path, G_FILE_TEST_EXISTS)) {
+		defaults = g_strdup_printf ("%s/%s/%s.conf",
+					    g_get_user_data_dir (),
+					    "autocodebuild",
+					    priv->package_name);
+		g_print ("%s not found, perhaps you have to add 'Path' to %s\n",
+			 priv->path, defaults);
+		priv->disabled = TRUE;
+		goto out;
+	}
+
+
+	/* load from config.h */
+	acb_project_get_from_config_h (project);
+
+	/* generate fallbacks */
+	if (priv->tarball_name == NULL)
+		priv->tarball_name = g_strdup (priv->package_name);
 
 	if (acb_project_path_suffix_exists (project, ".git"))
 		priv->rcs = ACB_PROJECT_RCS_GIT;
@@ -219,28 +327,15 @@ acb_project_set_path (AcbProject *project, const gchar *path)
 	else if (acb_project_path_suffix_exists (project, ".bzr"))
 		priv->rcs = ACB_PROJECT_RCS_BZR;
 
-	/* load defaults */
-	acb_project_load_defaults (project);
-
-	/* load from config.h */
-	acb_project_get_from_config_h (project);
-
-	/* generate fallbacks */
-	if (priv->package_name == NULL)
-		priv->package_name = g_strdup (priv->basename);
-	if (priv->tarball_name == NULL)
-		priv->tarball_name = g_strdup (priv->package_name);
-
+out:
 	/* debugging */
 	egg_debug ("path:         %s", priv->path);
-	egg_debug ("basename:     %s", priv->basename);
 	egg_debug ("package name: %s", priv->package_name);
 	egg_debug ("tarball name: %s", priv->tarball_name);
 	egg_debug ("version:      %s", priv->version);
 	egg_debug ("release:      %i", priv->release);
 	egg_debug ("disabled:     %i", priv->disabled);
-
-	return TRUE;
+	g_free (defaults);
 }
 
 /**
@@ -277,24 +372,36 @@ static gchar *
 acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 {
 	AcbProjectPrivate *priv = project->priv;
+	gchar *filename = NULL;
+	gchar *logfile = NULL;
 
 	if (kind == ACB_PROJECT_KIND_BUILDING_LOCALLY)
-		return g_build_filename (priv->path, ".acb", "make.log", NULL);
-	if (kind == ACB_PROJECT_KIND_BUILDING_PACKAGE)
-		return g_build_filename (priv->path, ".acb", "build.log", NULL);
-	if (kind == ACB_PROJECT_KIND_COPYING_TARBALL)
-		return g_build_filename (priv->path, ".acb", "copy.log", NULL);
-	if (kind == ACB_PROJECT_KIND_CREATING_TARBALL)
-		return g_build_filename (priv->path, ".acb", "dist.log", NULL);
-	if (kind == ACB_PROJECT_KIND_CLEANING)
-		return g_build_filename (priv->path, ".acb", "clean.log", NULL);
-	if (kind == ACB_PROJECT_KIND_UPDATING)
-		return g_build_filename (priv->path, ".acb", "update.log", NULL);
-	if (kind == ACB_PROJECT_KIND_GETTING_UPDATES)
-		return g_build_filename (priv->path, ".acb", "fetch.log", NULL);
-	if (kind == ACB_PROJECT_KIND_SHOWING_UPDATES)
-		return g_build_filename (priv->path, ".acb", "diffstat.log", NULL);
-	return NULL;
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "make.log");
+	else if (kind == ACB_PROJECT_KIND_BUILDING_PACKAGE)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "build.log");
+	else if (kind == ACB_PROJECT_KIND_COPYING_TARBALL)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "copy.log");
+	else if (kind == ACB_PROJECT_KIND_CREATING_TARBALL)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "dist.log");
+	else if (kind == ACB_PROJECT_KIND_CLEANING)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "clean.log");
+	else if (kind == ACB_PROJECT_KIND_UPDATING)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "update.log");
+	else if (kind == ACB_PROJECT_KIND_GETTING_UPDATES)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "fetch.log");
+	else if (kind == ACB_PROJECT_KIND_SHOWING_UPDATES)
+		filename = g_strdup_printf ("%s-%s", priv->package_name, "diffstat.log");
+	else
+		goto out;
+
+	logfile = g_build_filename (g_get_user_data_dir (),
+				    "autocodebuild",
+				    filename,
+				    NULL);
+
+	g_free (filename);
+out:
+	return logfile;
 }
 
 /**
@@ -317,7 +424,10 @@ acb_project_ensure_has_path (const gchar *path)
  * acb_project_run:
  **/
 static gboolean
-acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind kind, GError **error)
+acb_project_run (AcbProject *project,
+		 const gchar *command_line,
+		 AcbProjectKind kind,
+		 GError **error)
 {
 	gboolean ret;
 	gchar *standard_error = NULL;
@@ -332,10 +442,19 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
 	title = acb_project_kind_to_title (kind);
-	g_print ("%s %s...", title, priv->basename);
+	g_print ("%s %s...", title, priv->package_name);
 
 	argv = g_strsplit (command_line, " ", -1);
-	ret = g_spawn_sync (priv->path, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, &standard_out, &standard_error, &exit_status, error);
+	ret = g_spawn_sync (priv->path,
+			    argv,
+			    NULL,
+			    G_SPAWN_SEARCH_PATH,
+			    NULL,
+			    NULL,
+			    &standard_out,
+			    &standard_error,
+			    &exit_status,
+			    error);
 	if (!ret)
 		goto out;
 
@@ -361,7 +480,11 @@ acb_project_run (AcbProject *project, const gchar *command_line, AcbProjectKind 
 			g_print ("%s\n", "No updates");
 		} else {
 			diffstat = g_strdup_printf ("/usr/bin/diffstat %s", logfile);
-			ret = g_spawn_command_line_sync (diffstat, &standard_out, NULL, NULL, error);
+			ret = g_spawn_command_line_sync (diffstat,
+							 &standard_out,
+							 NULL,
+							 NULL,
+							 error);
 			if (!ret)
 				goto out;
 			if (standard_out == NULL || standard_out[0] == '\0')
@@ -404,7 +527,8 @@ acb_project_clean (AcbProject *project, GError **error)
 
 	/* clean repo? */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
-		ret = acb_project_run (project, "git gc", ACB_PROJECT_KIND_GARBAGE_COLLECTING, error);
+		ret = acb_project_run (project, "git gc",
+				       ACB_PROJECT_KIND_GARBAGE_COLLECTING, error);
 		if (!ret)
 			goto out;
 	}
@@ -430,7 +554,8 @@ acb_project_update (AcbProject *project, GError **error)
 
 	/* git does this in two stages */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
-		ret = acb_project_run (project, "git fetch", ACB_PROJECT_KIND_GETTING_UPDATES, error);
+		ret = acb_project_run (project, "git fetch",
+				       ACB_PROJECT_KIND_GETTING_UPDATES, error);
 		if (!ret)
 			goto out;
 
@@ -448,17 +573,21 @@ acb_project_update (AcbProject *project, GError **error)
 		goto out;
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_SVN) {
-		ret = acb_project_run (project, "svn up", ACB_PROJECT_KIND_UPDATING, error);
+		ret = acb_project_run (project, "svn up",
+				       ACB_PROJECT_KIND_UPDATING, error);
 		goto out;
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_CVS) {
-		ret = acb_project_run (project, "cvs up", ACB_PROJECT_KIND_UPDATING, error);
+		ret = acb_project_run (project, "cvs up",
+				       ACB_PROJECT_KIND_UPDATING, error);
 		goto out;
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_BZR) {
-		ret = acb_project_run (project, "bzr up", ACB_PROJECT_KIND_UPDATING, error);
+		ret = acb_project_run (project, "bzr up",
+				       ACB_PROJECT_KIND_UPDATING, error);
 		goto out;
 	}
+	g_print ("No detected RCS for %s!\n", priv->package_name);
 out:
 	return ret;
 }
@@ -504,50 +633,8 @@ out:
 static gboolean
 acb_project_bump_release (AcbProject *project, GError **error)
 {
-	gchar *data = NULL;
-	gchar *defaults = NULL;
-	GKeyFile *file = NULL;
-	gboolean ret = TRUE;
-	AcbProjectPrivate *priv = project->priv;
-
-	/* inc */
-	priv->release++;
-
-	/* load file */
-	file = g_key_file_new ();
-	defaults = g_build_filename (priv->path, ".acb", "defaults.conf", NULL);
-
-	/* does not yet exist */
-	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
-		ret = g_file_set_contents (defaults, "#auto-generated", -1, error);
-		if (!ret)
-			goto out;
-	}
-
-	/* load latest copy */
-	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, error);
-	if (!ret)
-		goto out;
-
-	/* set new value */
-	g_key_file_set_integer (file, "defaults", "Release", priv->release);
-
-	/* push to text */
-	data = g_key_file_to_data (file, NULL, error);
-	if (data == NULL) {
-		ret = FALSE;
-		goto out;
-	}
-
-	/* save to file */
-	ret = g_file_set_contents (defaults, data, -1, error);
-	if (!ret)
-		goto out;
-out:
-	g_free (data);
-	g_free (defaults);
-	g_key_file_free (file);
-	return ret;
+	project->priv->release++;
+	return acb_project_write_conf (project, error);
 }
 
 /**
@@ -609,7 +696,9 @@ out:
  * acb_project_move_all_files_with_prefix:
  **/
 static void
-acb_project_move_all_files_with_prefix (const gchar *directory, const gchar *prefix, const gchar *directory_dest)
+acb_project_move_all_files_with_prefix (const gchar *directory,
+					const gchar *prefix,
+					const gchar *directory_dest)
 {
 	GDir *dir;
 	GError *error = NULL;
@@ -649,7 +738,8 @@ acb_project_make (AcbProject *project, GError **error)
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
 	/* first build locally */
-	ret = acb_project_run (project, "make", ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
+	ret = acb_project_run (project, "make",
+			       ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
 	return ret;
 }
 
@@ -684,8 +774,10 @@ acb_project_build (AcbProject *project, GError **error)
 		goto out;
 
 	/* check we've got a spec file */
-	spec = g_strdup_printf ("%s/%s/%s.spec.in", priv->path, ".acb", priv->package_name);
-	acb_project_ensure_has_path (spec);
+	spec = g_strdup_printf ("%s/%s/%s.spec.in",
+				g_get_user_data_dir (),
+				"autocodebuild",
+				priv->package_name);
 	ret = g_file_test (spec, G_FILE_TEST_EXISTS);
 	if (!ret) {
 		g_set_error (error, 1, 0, "spec file was not found: %s", spec);
@@ -793,7 +885,6 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* remove generated file */
 	g_unlink (dest);
-
 out:
 	g_free (standard_out);
 	g_free (tarball);
@@ -825,8 +916,8 @@ acb_project_finalize (GObject *object)
 	priv = project->priv;
 
 	g_free (priv->path);
+	g_free (priv->default_code_path);
 	g_free (priv->rpmbuild_path);
-	g_free (priv->basename);
 	g_free (priv->version);
 	g_free (priv->tarball_name);
 	g_free (priv->package_name);
@@ -853,12 +944,6 @@ static void
 acb_project_init (AcbProject *project)
 {
 	project->priv = ACB_PROJECT_GET_PRIVATE (project);
-	project->priv->path = NULL;
-	project->priv->rpmbuild_path = NULL;
-	project->priv->basename = NULL;
-	project->priv->version = NULL;
-	project->priv->tarball_name = NULL;
-	project->priv->package_name = NULL;
 	project->priv->rcs = ACB_PROJECT_RCS_UNKNOWN;
 }
 

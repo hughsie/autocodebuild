@@ -1,3 +1,24 @@
+/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
+ *
+ * Copyright (C) 2009-2011 Richard Hughes <richard@hughsie.com>
+ *
+ * Licensed under the GNU General Public License Version 2
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
 #include <glib-object.h>
 
 #include "acb-project.h"
@@ -9,29 +30,24 @@
  * acb_main_process_project_name:
  **/
 static gboolean
-acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboolean clean, gboolean update, gboolean build, gboolean make, const gchar *rpmbuild_path)
+acb_main_process_project_name (const gchar *default_code_path,
+			       const gchar *project_name,
+			       gboolean clean,
+			       gboolean update,
+			       gboolean build,
+			       gboolean make,
+			       const gchar *rpmbuild_path)
 {
 	gchar *path = NULL;
 	gboolean ret = TRUE;
 	GError *error = NULL;
 	AcbProject *project = NULL;
 
-	path = g_build_filename (subpath, folder, NULL);
-
-	/* check exists */
-	if (!g_file_test (path, G_FILE_TEST_EXISTS)) {
-		g_print ("%s: %s\n", "Does not exist", path);
-		goto out;
-	}
-
-	/* check is a directory */
-	if (!g_file_test (path, G_FILE_TEST_IS_DIR))
-		goto out;
-
 	/* operate on folder */
 	project = acb_project_new ();
-	acb_project_set_path (project, path);
+	acb_project_set_default_code_path (project, default_code_path);
 	acb_project_set_rpmbuild_path (project, rpmbuild_path);
+	acb_project_set_name (project, project_name);
 	if (clean) {
 		ret = acb_project_clean (project, &error);
 		if (!ret) {
@@ -48,18 +64,18 @@ acb_main_process_project_name (const gchar *subpath, const gchar *folder, gboole
 			goto out;
 		}
 	}
-	if (build) {
-		ret = acb_project_build (project, &error);
-		if (!ret) {
-			g_print ("Failed to build: %s\n", error->message);
-			g_error_free (error);
-			goto out;
-		}
-	}
 	if (make) {
 		ret = acb_project_make (project, &error);
 		if (!ret) {
 			g_print ("Failed to make: %s\n", error->message);
+			g_error_free (error);
+			goto out;
+		}
+	}
+	if (build) {
+		ret = acb_project_build (project, &error);
+		if (!ret) {
+			g_print ("Failed to build: %s\n", error->message);
 			g_error_free (error);
 			goto out;
 		}
@@ -100,7 +116,10 @@ acb_main_get_code_dir ()
 	gchar *code_dir = NULL;
 
 	/* find the file, else create it */
-	config_file = g_build_filename (g_get_user_config_dir (), "autocodebuild", "defaults.conf", NULL);
+	config_file = g_build_filename (g_get_user_config_dir (),
+					"autocodebuild",
+					"defaults.conf",
+					NULL);
 	if (!g_file_test (config_file, G_FILE_TEST_EXISTS)) {
 
 		/* create a good default */
@@ -187,8 +206,9 @@ main (int argc, char **argv)
 	gchar *rpmbuild_path = NULL;
 	guint i;
 	const gchar *filename;
-	gchar *dirname = NULL;
-	gchar *basename = NULL;
+	gchar *project_name;
+	gchar *tmp;
+	gchar *user_data = NULL;
 
 	const GOptionEntry options[] = {
 		{ "verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
@@ -232,34 +252,50 @@ main (int argc, char **argv)
 	/* process the list */
 	if (files != NULL) {
 		for (i=0; files[i] != NULL; i++) {
-			dirname = g_path_get_dirname (files[i]);
-			basename = g_path_get_basename (files[i]);
-			if (g_strcmp0 (dirname, ".") == 0) {
-				/* we didn't specificy a directory */
-				acb_main_process_project_name (code_path, basename, clean, update, build, make, rpmbuild_path);
-			} else {
-				/* we specified the full directory */
-				acb_main_process_project_name (dirname, basename, clean, update, build, make, rpmbuild_path);
-			}
+			acb_main_process_project_name (code_path,
+						       files[i],
+						       clean,
+						       update,
+						       build,
+						       make,
+						       rpmbuild_path);
 		}
 	} else {
 		/* try to open */
-		dir = g_dir_open (code_path, 0, &error);
+		user_data = g_build_filename (g_get_user_data_dir (),
+					      "autocodebuild",
+					      NULL);
+		dir = g_dir_open (user_data, 0, &error);
 		if (dir == NULL) {
-			egg_warning ("cannot open directory: %s", error->message);
+			egg_warning ("cannot open directory: %s",
+				     error->message);
 			g_error_free (error);
 			goto out;
 		}
 
 		/* find each */
-		while ((filename = g_dir_read_name (dir)))
-			acb_main_process_project_name (code_path, filename, clean, update, build, make, rpmbuild_path);
+		while ((filename = g_dir_read_name (dir))) {
+			if (!g_str_has_suffix (filename, ".conf"))
+				continue;
+			project_name = g_strdup (filename);
+			tmp = g_strrstr (project_name, ".");
+			*tmp = '\0';
+			acb_main_process_project_name (code_path,
+						       project_name,
+						       clean,
+						       update,
+						       build,
+						       make,
+						       rpmbuild_path);
+			g_free (project_name);
+		}
 		g_dir_close (dir);
 	}
 
 	/* all install */
 	if (install) {
-		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/15/i386/*.rpm", NULL, NULL, NULL, &error);
+		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/15/i386/*.rpm",
+						 NULL, NULL, NULL, &error);
 		if (!ret) {
 			egg_warning ("cannot install packages: %s", error->message);
 			g_error_free (error);
@@ -267,8 +303,7 @@ main (int argc, char **argv)
 		}
 	}
 out:
-	g_free (dirname);
-	g_free (basename);
+	g_free (user_data);
 	g_free (code_path);
 	g_free (rpmbuild_path);
 	g_free (options_help);

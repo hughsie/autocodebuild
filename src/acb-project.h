@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2009 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2009-2011 Richard Hughes <richard@hughsie.com>
  *
  * Licensed under the GNU General Public License Version 2
  *
@@ -48,20 +48,22 @@ struct _AcbProjectClass
 	GObjectClass		 parent_class;
 };
 
-GType		 acb_project_get_type		(void);
-AcbProject	*acb_project_new		(void);
-gboolean	 acb_project_set_path		(AcbProject		*project,
-						 const gchar		*path);
-gboolean	 acb_project_set_rpmbuild_path	(AcbProject		*project,
-						 const gchar		*path);
-gboolean	 acb_project_clean		(AcbProject		*project,
-						 GError			**error);
-gboolean	 acb_project_update		(AcbProject		*project,
-						 GError			**error);
-gboolean	 acb_project_build		(AcbProject		*project,
-						 GError			**error);
-gboolean	 acb_project_make		(AcbProject		*project,
-						 GError			**error);
+GType		 acb_project_get_type			(void);
+AcbProject	*acb_project_new			(void);
+void		 acb_project_set_default_code_path	(AcbProject		*project,
+							 const gchar		*path);
+void		 acb_project_set_rpmbuild_path		(AcbProject		*project,
+							 const gchar		*path);
+void		 acb_project_set_name			(AcbProject		*project,
+							 const gchar		*path);
+gboolean	 acb_project_clean			(AcbProject		*project,
+							 GError			**error);
+gboolean	 acb_project_update			(AcbProject		*project,
+							 GError			**error);
+gboolean	 acb_project_build			(AcbProject		*project,
+							 GError			**error);
+gboolean	 acb_project_make			(AcbProject		*project,
+							 GError			**error);
 
 G_END_DECLS
 

@@ -527,7 +527,7 @@ acb_project_clean (AcbProject *project, GError **error)
 
 	/* clean repo? */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
-		ret = acb_project_run (project, "git gc",
+		ret = acb_project_run (project, "git gc --aggressive",
 				       ACB_PROJECT_KIND_GARBAGE_COLLECTING, error);
 		if (!ret)
 			goto out;
@@ -828,13 +828,16 @@ acb_project_build (AcbProject *project, GError **error)
 		goto out;
 
 	/* get the tarball */
-	tarball = g_strdup_printf ("%s/%s-%s.tar.gz", priv->path, priv->tarball_name, priv->version);
-	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
-		egg_debug ("gzipped tarball %s not found", tarball);
+	if (g_strstr_len (priv->tarball_name, -1, ".") != NULL)
+		tarball = g_strdup_printf ("%s/%s.tar.bz2", priv->path, priv->tarball_name);
+	else
 		tarball = g_strdup_printf ("%s/%s-%s.tar.bz2", priv->path, priv->tarball_name, priv->version);
-	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
 		egg_debug ("bzipped tarball %s not found", tarball);
+		tarball = g_strdup_printf ("%s/%s-%s.tar.gz", priv->path, priv->tarball_name, priv->version);
+	}
+	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
+		egg_debug ("gzipped tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.tar.xz", priv->path, priv->tarball_name, priv->version);
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
@@ -869,17 +872,17 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* delete old versions in repo directory */
 	g_print ("%s...", "Deleting old versions");
-	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/15/i386", NULL);
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/19/x86_64", NULL);
 	acb_project_remove_all_files_with_prefix (src, priv->package_name);
-	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/15/SRPMS", NULL);
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/19/SRPMS", NULL);
 	acb_project_remove_all_files_with_prefix (src, priv->package_name);
 	g_print ("\t%s\n", "Done");
 
 	/* copy into repo directory */
 	g_print ("%s...", "Copying new version");
-	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/15/i386", NULL);
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/19/x86_64", NULL);
 	acb_project_move_all_files_with_prefix (rpmbuild_rpms, priv->package_name, dest);
-	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/15/SRPMS", NULL);
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/19/SRPMS", NULL);
 	acb_project_move_all_files_with_prefix (rpmbuild_srpms, priv->package_name, dest);
 	g_print ("\t%s\n", "Done");
 

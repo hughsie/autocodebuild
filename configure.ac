@@ -27,7 +27,6 @@ CPPFLAGS="$CPPFLAGS -DGSEAL_ENABLE"
 
 if test "$GCC" = "yes"; then
 	WARNINGFLAGS_C="$WARNINGFLAGS_C -Wall"
-	WARNINGFLAGS_C="$WARNINGFLAGS_C -Werror"
 	WARNINGFLAGS_C="$WARNINGFLAGS_C -Wcast-align -Wno-uninitialized"
 	WARNINGFLAGS_C="$WARNINGFLAGS_C -Wmissing-declarations"
 	WARNINGFLAGS_C="$WARNINGFLAGS_C -Wredundant-decls"

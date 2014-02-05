@@ -24,8 +24,6 @@
 #include "acb-project.h"
 #include "acb-common.h"
 
-#include "egg-debug.h"
-
 /**
  * acb_main_process_project_name:
  **/
@@ -137,7 +135,7 @@ acb_main_get_code_dir ()
 	g_key_file_load_from_file (file, config_file, G_KEY_FILE_NONE, &error);
 	code_dir = g_key_file_get_string (file, "defaults", "CodeDirectory", NULL);
 	if (code_dir == NULL) {
-		egg_error ("cannot load: %s", error->message);
+		g_error ("cannot load: %s", error->message);
 		g_error_free (error);
 		goto out;
 	}
@@ -234,9 +232,6 @@ main (int argc, char **argv)
 	options_help = g_option_context_get_help (context, TRUE, NULL);
 	g_option_context_free (context);
 
-	egg_debug_init (verbose);
-	g_type_init ();
-
 	/* get the code location */
 	code_path = acb_main_get_code_dir ();
 
@@ -267,7 +262,7 @@ main (int argc, char **argv)
 					      NULL);
 		dir = g_dir_open (user_data, 0, &error);
 		if (dir == NULL) {
-			egg_warning ("cannot open directory: %s",
+			g_warning ("cannot open directory: %s",
 				     error->message);
 			g_error_free (error);
 			goto out;
@@ -297,7 +292,7 @@ main (int argc, char **argv)
 		ret = g_spawn_command_line_sync ("pkexec rpm -Fvh /home/hughsie/rpmbuild/REPOS/fedora/19/x86_64/*.rpm",
 						 NULL, NULL, NULL, &error);
 		if (!ret) {
-			egg_warning ("cannot install packages: %s", error->message);
+			g_warning ("cannot install packages: %s", error->message);
 			g_error_free (error);
 			goto out;
 		}

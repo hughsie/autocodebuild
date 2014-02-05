@@ -29,8 +29,6 @@
 #include "acb-project.h"
 #include "acb-common.h"
 
-#include "egg-debug.h"
-
 #define ACB_PROJECT_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), ACB_TYPE_PROJECT, AcbProjectPrivate))
 
 typedef enum
@@ -154,10 +152,10 @@ acb_project_load_defaults (AcbProject *project)
 				    "autocodebuild",
 				    priv->package_name);
 	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
-		egg_debug ("no %s file, creating", defaults);
+		g_debug ("no %s file, creating", defaults);
 		ret = acb_project_write_conf (project, &error);
 		if (!ret) {
-			egg_warning ("failed to write: %s", error->message);
+			g_warning ("failed to write: %s", error->message);
 			g_error_free (error);
 		}
 		goto out;
@@ -167,7 +165,7 @@ acb_project_load_defaults (AcbProject *project)
 	file = g_key_file_new ();
 	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, &error);
 	if (!ret) {
-		egg_warning ("failed to read: %s", error->message);
+		g_warning ("failed to read: %s", error->message);
 		g_error_free (error);
 		goto out;
 	}
@@ -202,10 +200,8 @@ acb_project_get_from_config_h (AcbProject *project)
 
 	/* find file */
 	configh = g_build_filename (priv->path, "config.h", NULL);
-	if (!g_file_test (configh, G_FILE_TEST_EXISTS)) {
-		egg_warning ("no %s", configh);
+	if (!g_file_test (configh, G_FILE_TEST_EXISTS))
 		goto out;
-	}
 
 	/* get contents */
 	ret = g_file_get_contents (configh, &contents, NULL, NULL);
@@ -294,7 +290,7 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 		priv->path = g_build_filename (priv->default_code_path,
 					       priv->package_name,
 					       NULL);
-		egg_debug ("no Path, so falling back to %s", priv->path);
+		g_debug ("no Path, so falling back to %s", priv->path);
 	}
 
 	/* check is a directory */
@@ -329,12 +325,12 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 
 out:
 	/* debugging */
-	egg_debug ("path:         %s", priv->path);
-	egg_debug ("package name: %s", priv->package_name);
-	egg_debug ("tarball name: %s", priv->tarball_name);
-	egg_debug ("version:      %s", priv->version);
-	egg_debug ("release:      %i", priv->release);
-	egg_debug ("disabled:     %i", priv->disabled);
+	g_debug ("path:         %s", priv->path);
+	g_debug ("package name: %s", priv->package_name);
+	g_debug ("tarball name: %s", priv->tarball_name);
+	g_debug ("version:      %s", priv->version);
+	g_debug ("release:      %i", priv->release);
+	g_debug ("disabled:     %i", priv->disabled);
 	g_free (defaults);
 }
 
@@ -609,7 +605,7 @@ acb_project_directory_remove_contents (const gchar *directory)
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
-		egg_warning ("cannot open directory: %s", error->message);
+		g_warning ("cannot open directory: %s", error->message);
 		g_error_free (error);
 		goto out;
 	}
@@ -619,7 +615,7 @@ acb_project_directory_remove_contents (const gchar *directory)
 		src = g_build_filename (directory, filename, NULL);
 		retval = g_unlink (src);
 		if (retval != 0)
-			egg_warning ("failed to delete %s", src);
+			g_warning ("failed to delete %s", src);
 		g_free (src);
 	}
 	g_dir_close (dir);
@@ -652,7 +648,7 @@ acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *p
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
-		egg_warning ("cannot open directory: %s", error->message);
+		g_warning ("cannot open directory: %s", error->message);
 		g_error_free (error);
 		return;
 	}
@@ -664,7 +660,7 @@ acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *p
 		src = g_build_filename (directory, filename, NULL);
 		retval = g_unlink (src);
 		if (retval != 0)
-			egg_warning ("failed to delete %s", src);
+			g_warning ("failed to delete %s", src);
 		g_free (src);
 	}
 	g_dir_close (dir);
@@ -709,7 +705,7 @@ acb_project_move_all_files_with_prefix (const gchar *directory,
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
-		egg_warning ("cannot open directory: %s", error->message);
+		g_warning ("cannot open directory: %s", error->message);
 		g_error_free (error);
 		return;
 	}
@@ -833,19 +829,19 @@ acb_project_build (AcbProject *project, GError **error)
 	else
 		tarball = g_strdup_printf ("%s/%s-%s.tar.bz2", priv->path, priv->tarball_name, priv->version);
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
-		egg_debug ("bzipped tarball %s not found", tarball);
+		g_debug ("bzipped tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.tar.gz", priv->path, priv->tarball_name, priv->version);
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
-		egg_debug ("gzipped tarball %s not found", tarball);
+		g_debug ("gzipped tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.tar.xz", priv->path, priv->tarball_name, priv->version);
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
-		egg_debug ("xz tarball %s not found", tarball);
+		g_debug ("xz tarball %s not found", tarball);
 		tarball = g_strdup_printf ("%s/%s-%s.zip", priv->path, priv->tarball_name, priv->version);
 	}
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
-		egg_debug ("zipped tarball %s not found", tarball);
+		g_debug ("zipped tarball %s not found", tarball);
 		g_set_error (error, 1, 0, "cannot find source in %s", priv->path);
 		ret = FALSE;
 		goto out;

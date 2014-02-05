@@ -16,8 +16,6 @@ bin_PROGRAMS =						\
 	autocodebuild
 
 autocodebuild_SOURCES =					\
-	egg-debug.c					\
-	egg-debug.h					\
 	acb-project.c					\
 	acb-project.h					\
 	acb-main.c

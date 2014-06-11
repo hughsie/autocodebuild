@@ -232,6 +232,9 @@ main (int argc, char **argv)
 	options_help = g_option_context_get_help (context, TRUE, NULL);
 	g_option_context_free (context);
 
+	if (verbose)
+		g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
+
 	/* get the code location */
 	code_path = acb_main_get_code_dir ();
 

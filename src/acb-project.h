@@ -26,29 +26,14 @@
 
 G_BEGIN_DECLS
 
-#define ACB_TYPE_PROJECT		(acb_project_get_type ())
-#define ACB_PROJECT(o)			(G_TYPE_CHECK_INSTANCE_CAST ((o), ACB_TYPE_PROJECT, AcbProject))
-#define ACB_PROJECT_CLASS(k)		(G_TYPE_CHECK_CLASS_CAST((k), ACB_TYPE_PROJECT, AcbProjectClass))
-#define ACB_IS_PROJECT(o)		(G_TYPE_CHECK_INSTANCE_TYPE ((o), ACB_TYPE_PROJECT))
-#define ACB_IS_PROJECT_CLASS(k)		(G_TYPE_CHECK_CLASS_TYPE ((k), ACB_TYPE_PROJECT))
-#define ACB_PROJECT_GET_CLASS(o)	(G_TYPE_INSTANCE_GET_CLASS ((o), ACB_TYPE_PROJECT, AcbProjectClass))
-
-typedef struct _AcbProject		AcbProject;
-typedef struct _AcbProjectPrivate	AcbProjectPrivate;
-typedef struct _AcbProjectClass		AcbProjectClass;
-
-struct _AcbProject
-{
-	GObject			 parent;
-	AcbProjectPrivate	*priv;
-};
+#define ACB_TYPE_PROJECT (acb_project_get_type ())
+G_DECLARE_DERIVABLE_TYPE (AcbProject, acb_project, ACB, PROJECT, GObject)
 
 struct _AcbProjectClass
 {
-	GObjectClass		 parent_class;
+	GObjectClass		parent_class;
 };
 
-GType		 acb_project_get_type			(void);
 AcbProject	*acb_project_new			(void);
 void		 acb_project_set_default_code_path	(AcbProject		*project,
 							 const gchar		*path);

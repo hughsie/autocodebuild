@@ -53,7 +53,7 @@ typedef enum {
 	ACB_PROJECT_KIND_LAST
 } AcbProjectKind;
 
-struct _AcbProjectPrivate
+typedef struct
 {
 	gchar			*path;
 	gchar			*path_build;
@@ -63,11 +63,14 @@ struct _AcbProjectPrivate
 	gchar			*version;
 	gchar			*tarball_name;
 	gboolean		 disabled;
+	gboolean		 use_ninja;
 	guint			 release;
 	AcbProjectRcs		 rcs;
-};
+} AcbProjectPrivate;
 
-G_DEFINE_TYPE (AcbProject, acb_project, G_TYPE_OBJECT)
+G_DEFINE_TYPE_WITH_PRIVATE (AcbProject, acb_project, G_TYPE_OBJECT)
+
+#define GET_PRIVATE(o) (acb_project_get_instance_private (o))
 
 /**
  * acb_project_path_suffix_exists:
@@ -75,12 +78,12 @@ G_DEFINE_TYPE (AcbProject, acb_project, G_TYPE_OBJECT)
 static gboolean
 acb_project_path_suffix_exists (AcbProject *project, const gchar *suffix)
 {
-	gchar *path;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	g_autofree gchar *path = NULL;
 	gboolean ret;
 
-	path = g_build_filename (project->priv->path, suffix, NULL);
+	path = g_build_filename (priv->path, suffix, NULL);
 	ret = g_file_test (path, G_FILE_TEST_EXISTS);
-	g_free (path);
 	return ret;
 }
 
@@ -90,11 +93,10 @@ acb_project_path_suffix_exists (AcbProject *project, const gchar *suffix)
 static gboolean
 acb_project_write_conf (AcbProject *project, GError **error)
 {
-	gchar *data = NULL;
-	gchar *defaults = NULL;
-	GKeyFile *file = NULL;
-	gboolean ret = TRUE;
-	AcbProjectPrivate *priv = project->priv;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	g_autofree gchar *data = NULL;
+	g_autofree gchar *defaults = NULL;
+	g_autoptr(GKeyFile) file = NULL;
 
 	/* load file */
 	file = g_key_file_new ();
@@ -104,35 +106,24 @@ acb_project_write_conf (AcbProject *project, GError **error)
 
 	/* does not yet exist */
 	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
-		ret = g_file_set_contents (defaults, "#auto-generated\n\n[defaults]\n", -1, error);
-		if (!ret)
-			goto out;
+		if (!g_file_set_contents (defaults, "#auto-generated\n\n[defaults]\n", -1, error))
+			return FALSE;
 	}
 
 	/* load latest copy */
-	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, error);
-	if (!ret)
-		goto out;
+	if (!g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, error))
+		return FALSE;
 
 	/* set new value */
 	g_key_file_set_integer (file, "defaults", "Release", priv->release);
 
 	/* push to text */
 	data = g_key_file_to_data (file, NULL, error);
-	if (data == NULL) {
-		ret = FALSE;
-		goto out;
-	}
+	if (data == NULL)
+		return FALSE;
 
 	/* save to file */
-	ret = g_file_set_contents (defaults, data, -1, error);
-	if (!ret)
-		goto out;
-out:
-	g_free (data);
-	g_free (defaults);
-	g_key_file_free (file);
-	return ret;
+	return g_file_set_contents (defaults, data, -1, error);
 }
 
 /**
@@ -141,11 +132,11 @@ out:
 static gboolean
 acb_project_load_defaults (AcbProject *project)
 {
-	GError *error = NULL;
-	gchar *defaults;
-	GKeyFile *file = NULL;
-	gboolean ret = TRUE;
-	AcbProjectPrivate *priv = project->priv;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	gboolean ret;
+	g_autofree gchar *defaults;
+	g_autoptr(GError) error = NULL;
+	g_autoptr(GKeyFile) file = NULL;
 
 	/* find file, but it's okay not to have a file if the defaults are okay */
 	defaults = g_strdup_printf ("%s/%s/%s.conf",
@@ -155,20 +146,16 @@ acb_project_load_defaults (AcbProject *project)
 	if (!g_file_test (defaults, G_FILE_TEST_EXISTS)) {
 		g_debug ("no %s file, creating", defaults);
 		ret = acb_project_write_conf (project, &error);
-		if (!ret) {
+		if (!ret)
 			g_warning ("failed to write: %s", error->message);
-			g_error_free (error);
-		}
-		goto out;
+		return ret;
 	}
 
 	/* load file */
 	file = g_key_file_new ();
-	ret = g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, &error);
-	if (!ret) {
+	if (!g_key_file_load_from_file (file, defaults, G_KEY_FILE_NONE, &error)) {
 		g_warning ("failed to read: %s", error->message);
-		g_error_free (error);
-		goto out;
+		return FALSE;
 	}
 
 	/* get values */
@@ -178,10 +165,6 @@ acb_project_load_defaults (AcbProject *project)
 	priv->disabled = g_key_file_get_boolean (file, "defaults", "Disabled", NULL);
 	priv->release = g_key_file_get_integer (file, "defaults", "Release", NULL);
 	priv->path = g_key_file_get_string (file, "defaults", "Path", NULL);
-out:
-	g_free (defaults);
-	if (file != NULL)
-		g_key_file_free (file);
 	return ret;
 }
 
@@ -191,27 +174,25 @@ out:
 static gboolean
 acb_project_get_from_config_h (AcbProject *project)
 {
-	gchar *configh;
-	gchar *contents = NULL;
-	gchar **split = NULL;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 	gchar *ptr;
-	gboolean ret = TRUE;
 	guint i;
-	AcbProjectPrivate *priv = project->priv;
+	g_autofree gchar *configh = NULL;
+	g_autofree gchar *contents = NULL;
+	g_auto(GStrv) split = NULL;
 
 	/* find file */
 	configh = g_build_filename (priv->path_build, "config.h", NULL);
 	if (!g_file_test (configh, G_FILE_TEST_EXISTS))
-		goto out;
+		return TRUE;
 
 	/* get contents */
-	ret = g_file_get_contents (configh, &contents, NULL, NULL);
-	if (!ret)
-		goto out;
+	if (!g_file_get_contents (configh, &contents, NULL, NULL))
+		return FALSE;
 
 	/* split into lines */
 	split = g_strsplit (contents, "\n", -1);
-	for (i=0; split[i] != NULL; i++) {
+	for (i = 0; split[i] != NULL; i++) {
 		ptr = split[i];
 		if (ptr[0] == '\0')
 			continue;
@@ -233,11 +214,7 @@ acb_project_get_from_config_h (AcbProject *project)
 			}
 		}
 	}
-out:
-	g_free (configh);
-	g_free (contents);
-	g_strfreev (split);
-	return ret;
+	return TRUE;
 }
 
 /**
@@ -246,7 +223,7 @@ out:
 void
 acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
 {
-	AcbProjectPrivate *priv = project->priv;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 
 	g_return_if_fail (ACB_IS_PROJECT (project));
 	g_return_if_fail (path != NULL);
@@ -261,7 +238,7 @@ acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
 void
 acb_project_set_default_code_path (AcbProject *project, const gchar *path)
 {
-	AcbProjectPrivate *priv = project->priv;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 
 	g_return_if_fail (ACB_IS_PROJECT (project));
 	g_return_if_fail (path != NULL);
@@ -276,8 +253,8 @@ acb_project_set_default_code_path (AcbProject *project, const gchar *path)
 void
 acb_project_set_name (AcbProject *project, const gchar *name)
 {
-	gchar *defaults = NULL;
-	AcbProjectPrivate *priv = project->priv;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	g_autofree gchar *defaults = NULL;
 	g_autofree gchar *path_build = NULL;
 
 	g_return_if_fail (ACB_IS_PROJECT (project));
@@ -305,13 +282,14 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 		g_print ("%s not found, perhaps you have to add 'Path' to %s\n",
 			 priv->path, defaults);
 		priv->disabled = TRUE;
-		goto out;
+		return;
 	}
 
 	/* set build dir */
 	path_build = g_build_filename (priv->path, "build", NULL);
 	if (g_file_test (path_build, G_FILE_TEST_EXISTS)) {
 		priv->path_build = g_steal_pointer (&path_build);
+		priv->use_ninja = TRUE;
 	} else {
 		priv->path_build = g_strdup (priv->path);
 	}
@@ -332,7 +310,6 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 	else if (acb_project_path_suffix_exists (project, ".bzr"))
 		priv->rcs = ACB_PROJECT_RCS_BZR;
 
-out:
 	/* debugging */
 	g_debug ("path:         %s", priv->path);
 	g_debug ("package name: %s", priv->package_name);
@@ -340,7 +317,6 @@ out:
 	g_debug ("version:      %s", priv->version);
 	g_debug ("release:      %i", priv->release);
 	g_debug ("disabled:     %i", priv->disabled);
-	g_free (defaults);
 }
 
 /**
@@ -376,9 +352,8 @@ acb_project_kind_to_title (AcbProjectKind kind)
 static gchar *
 acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 {
-	AcbProjectPrivate *priv = project->priv;
-	gchar *filename = NULL;
-	gchar *logfile = NULL;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	g_autofree gchar *filename = NULL;
 
 	if (kind == ACB_PROJECT_KIND_BUILDING_LOCALLY)
 		filename = g_strdup_printf ("%s-%s", priv->package_name, "make.log");
@@ -397,16 +372,12 @@ acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 	else if (kind == ACB_PROJECT_KIND_SHOWING_UPDATES)
 		filename = g_strdup_printf ("%s-%s", priv->package_name, "diffstat.log");
 	else
-		goto out;
+		return NULL;
 
-	logfile = g_build_filename (g_get_user_data_dir (),
-				    "autocodebuild",
-				    filename,
-				    NULL);
-
-	g_free (filename);
-out:
-	return logfile;
+	return g_build_filename (g_get_user_data_dir (),
+				 "autocodebuild",
+				 filename,
+				 NULL);
 }
 
 /**
@@ -416,12 +387,11 @@ static gboolean
 acb_project_ensure_has_path (const gchar *path)
 {
 	gint retval;
-	gchar *folder;
+	g_autofree gchar *folder = NULL;
 
 	/* create leading path */
 	folder = g_path_get_dirname (path);
 	retval = g_mkdir_with_parents (folder, 0777);
-	g_free (folder);
 	return (retval == 0);
 }
 
@@ -434,15 +404,15 @@ acb_project_run (AcbProject *project,
 		 AcbProjectKind kind,
 		 GError **error)
 {
-	gboolean ret;
-	gchar *standard_error = NULL;
-	gchar *standard_out = NULL;
-	gchar **argv = NULL;
-	gint exit_status;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 	const gchar *title;
-	gchar *logfile = NULL;
-	gchar *diffstat = NULL;
-	AcbProjectPrivate *priv = project->priv;
+	gboolean ret;
+	gint exit_status;
+	g_autofree gchar *diffstat = NULL;
+	g_autofree gchar *logfile = NULL;
+	g_autofree gchar *standard_error = NULL;
+	g_autofree gchar *standard_out = NULL;
+	g_auto(GStrv) argv = NULL;
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
@@ -461,22 +431,21 @@ acb_project_run (AcbProject *project,
 			    &exit_status,
 			    error);
 	if (!ret)
-		goto out;
+		return FALSE;
 
 	/* fail if we got the wrong retval */
 	if (exit_status != 0) {
 		ret = FALSE;
 		g_set_error (error, 1, 0, "%s: %s\n%s", "Failed to run", command_line, standard_error);
-		goto out;
+		return FALSE;
 	}
 
 	/* save to file */
 	logfile = acb_project_get_logfile (project, kind);
 	if (logfile != NULL) {
 		acb_project_ensure_has_path (logfile);
-		ret = g_file_set_contents (logfile, standard_out, -1, error);
-		if (!ret)
-			goto out;
+		if (!g_file_set_contents (logfile, standard_out, -1, error))
+			return FALSE;
 	}
 
 	/* show any updates */
@@ -491,7 +460,7 @@ acb_project_run (AcbProject *project,
 							 NULL,
 							 error);
 			if (!ret)
-				goto out;
+				return FALSE;
 			if (standard_out == NULL || standard_out[0] == '\0')
 				g_print ("Updated (but no diffstat):\n");
 			else
@@ -500,14 +469,7 @@ acb_project_run (AcbProject *project,
 	} else {
 		g_print ("\t%s\n", "Done");
 	}
-
-out:
-	g_strfreev (argv);
-	g_free (standard_out);
-	g_free (standard_error);
-	g_free (logfile);
-	g_free (diffstat);
-	return ret;
+	return TRUE;
 }
 
 /**
@@ -516,30 +478,29 @@ out:
 gboolean
 acb_project_clean (AcbProject *project, GError **error)
 {
-	gboolean ret = TRUE;
-	AcbProjectPrivate *priv = project->priv;
+	gboolean ret;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
 	/* disabled */
 	if (priv->disabled)
-		goto out;
+		return TRUE;
 
 	/* clean the tree */
-	ret = acb_project_run (project, "make clean", ACB_PROJECT_KIND_CLEANING, error);
-	if (!ret)
-		goto out;
+	if (!acb_project_run (project, "make clean", ACB_PROJECT_KIND_CLEANING, error))
+		return FALSE;
 
 	/* clean repo? */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
 		ret = acb_project_run (project, "git gc --aggressive",
 				       ACB_PROJECT_KIND_GARBAGE_COLLECTING, error);
 		if (!ret)
-			goto out;
+			return FALSE;
 	}
 
-out:
-	return ret;
+	/* success */
+	return TRUE;
 }
 
 /**
@@ -548,53 +509,48 @@ out:
 gboolean
 acb_project_update (AcbProject *project, GError **error)
 {
-	gboolean ret = TRUE;
-	AcbProjectPrivate *priv = project->priv;
+	gboolean ret;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
 	/* disabled */
 	if (priv->disabled)
-		goto out;
+		return TRUE;
 
 	/* git does this in two stages */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
 		ret = acb_project_run (project, "git fetch",
 				       ACB_PROJECT_KIND_GETTING_UPDATES, error);
 		if (!ret)
-			goto out;
+			return FALSE;
 
 		/* TODO: don't assume master */
 
 		/* show differences */
 		ret = acb_project_run (project, "git diff master..origin/master", ACB_PROJECT_KIND_SHOWING_UPDATES, error);
 		if (!ret)
-			goto out;
+			return FALSE;
 	}
 
 	/* apply the updates */
 	if (priv->rcs == ACB_PROJECT_RCS_GIT) {
-		ret = acb_project_run (project, "git pull --rebase", ACB_PROJECT_KIND_UPDATING, error);
-		goto out;
+		return acb_project_run (project, "git pull --rebase", ACB_PROJECT_KIND_UPDATING, error);
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_SVN) {
-		ret = acb_project_run (project, "svn up",
-				       ACB_PROJECT_KIND_UPDATING, error);
-		goto out;
+		return acb_project_run (project, "svn up",
+					ACB_PROJECT_KIND_UPDATING, error);
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_CVS) {
-		ret = acb_project_run (project, "cvs up",
-				       ACB_PROJECT_KIND_UPDATING, error);
-		goto out;
+		return acb_project_run (project, "cvs up",
+					ACB_PROJECT_KIND_UPDATING, error);
 	}
 	if (priv->rcs == ACB_PROJECT_RCS_BZR) {
-		ret = acb_project_run (project, "bzr up",
-				       ACB_PROJECT_KIND_UPDATING, error);
-		goto out;
+		return acb_project_run (project, "bzr up",
+					ACB_PROJECT_KIND_UPDATING, error);
 	}
 	g_print ("No detected RCS for %s!\n", priv->package_name);
-out:
-	return ret;
+	return TRUE;
 }
 
 /**
@@ -605,30 +561,26 @@ out:
 static gboolean
 acb_project_directory_remove_contents (const gchar *directory)
 {
-	GDir *dir;
-	GError *error = NULL;
 	const gchar *filename;
-	gchar *src;
 	gint retval;
+	g_autoptr(GDir) dir = NULL;
+	g_autoptr(GError) error = NULL;
 
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
 		g_warning ("cannot open directory: %s", error->message);
-		g_error_free (error);
-		goto out;
+		return TRUE;
 	}
 
 	/* find each */
 	while ((filename = g_dir_read_name (dir))) {
+		g_autofree gchar *src = NULL;
 		src = g_build_filename (directory, filename, NULL);
 		retval = g_unlink (src);
 		if (retval != 0)
 			g_warning ("failed to delete %s", src);
-		g_free (src);
 	}
-	g_dir_close (dir);
-out:
 	return TRUE;
 }
 
@@ -638,7 +590,8 @@ out:
 static gboolean
 acb_project_bump_release (AcbProject *project, GError **error)
 {
-	project->priv->release++;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	priv->release++;
 	return acb_project_write_conf (project, error);
 }
 
@@ -648,31 +601,28 @@ acb_project_bump_release (AcbProject *project, GError **error)
 static void
 acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *prefix)
 {
-	GDir *dir;
-	GError *error = NULL;
 	const gchar *filename;
-	gchar *src;
 	gint retval;
+	g_autoptr(GDir) dir = NULL;
+	g_autoptr(GError) error = NULL;
 
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
 		g_warning ("cannot open directory: %s", error->message);
-		g_error_free (error);
 		return;
 	}
 
 	/* find each */
 	while ((filename = g_dir_read_name (dir))) {
+		g_autofree gchar *src = NULL;
 		if (!g_str_has_prefix (filename, prefix))
 			continue;
 		src = g_build_filename (directory, filename, NULL);
 		retval = g_unlink (src);
 		if (retval != 0)
 			g_warning ("failed to delete %s", src);
-		g_free (src);
 	}
-	g_dir_close (dir);
 }
 
 /**
@@ -681,20 +631,15 @@ acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *p
 static gboolean
 acb_project_copy_file (const gchar *src, const gchar *dest)
 {
-	gboolean ret;
 	gsize length;
-	gchar *data;
+	g_autofree gchar *data = NULL;
 
 	/* just copy data */
-	ret = g_file_get_contents (src, &data, &length, NULL);
-	if (!ret)
-		goto out;
-	ret = g_file_set_contents (dest, data, length, NULL);
-	if (!ret)
-		goto out;
-out:
-	g_free (data);
-	return ret;
+	if (!g_file_get_contents (src, &data, &length, NULL))
+		return FALSE;
+	if (!g_file_set_contents (dest, data, length, NULL))
+		return FALSE;
+	return TRUE;
 }
 
 /**
@@ -705,31 +650,27 @@ acb_project_move_all_files_with_prefix (const gchar *directory,
 					const gchar *prefix,
 					const gchar *directory_dest)
 {
-	GDir *dir;
-	GError *error = NULL;
 	const gchar *filename;
-	gchar *src;
-	gchar *dest;
+	g_autoptr(GDir) dir = NULL;
+	g_autoptr(GError) error = NULL;
 
 	/* try to open */
 	dir = g_dir_open (directory, 0, &error);
 	if (dir == NULL) {
 		g_warning ("cannot open directory: %s", error->message);
-		g_error_free (error);
 		return;
 	}
 
 	/* find each */
 	while ((filename = g_dir_read_name (dir))) {
+		g_autofree gchar *src = NULL;
+		g_autofree gchar *dest = NULL;
 		if (!g_str_has_prefix (filename, prefix))
 			continue;
 		src = g_build_filename (directory, filename, NULL);
 		dest = g_build_filename (directory_dest, filename, NULL);
 		acb_project_copy_file (src, dest);
-		g_free (src);
-		g_free (dest);
 	}
-	g_dir_close (dir);
 }
 
 /**
@@ -738,14 +679,9 @@ acb_project_move_all_files_with_prefix (const gchar *directory,
 gboolean
 acb_project_make (AcbProject *project, GError **error)
 {
-	gboolean ret = TRUE;
-
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
-
-	/* first build locally */
-	ret = acb_project_run (project, "make",
-			       ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
-	return ret;
+	return acb_project_run (project, "make",
+				ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
 }
 
 /**
@@ -754,29 +690,29 @@ acb_project_make (AcbProject *project, GError **error)
 gboolean
 acb_project_build (AcbProject *project, GError **error)
 {
-	gboolean ret = TRUE;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
 	GDate *date;
+	gboolean ret = TRUE;
 	gchar shortdate[128];
 	gchar longdate[128];
-	gchar *alphatag = NULL;
-	gchar *src = NULL;
-	gchar *dest = NULL;
-	gchar *tarball = NULL;
-	gchar *spec = NULL;
-	gchar *standard_out = NULL;
-	gchar *cmdline = NULL;
-	gchar *cmdline2 = NULL;
-	gchar *rpmbuild_rpms = NULL;
-	gchar *rpmbuild_srpms = NULL;
-	gchar *rpmbuild_sources = NULL;
-	gchar *rpmbuild_specs = NULL;
-	AcbProjectPrivate *priv = project->priv;
+	g_autofree gchar *alphatag = NULL;
+	g_autofree gchar *cmdline2 = NULL;
+	g_autofree gchar *cmdline = NULL;
+	g_autofree gchar *dest = NULL;
+	g_autofree gchar *rpmbuild_rpms = NULL;
+	g_autofree gchar *rpmbuild_sources = NULL;
+	g_autofree gchar *rpmbuild_specs = NULL;
+	g_autofree gchar *rpmbuild_srpms = NULL;
+	g_autofree gchar *spec = NULL;
+	g_autofree gchar *src = NULL;
+	g_autofree gchar *standard_out = NULL;
+	g_autofree gchar *tarball = NULL;
 
 	g_return_val_if_fail (ACB_IS_PROJECT (project), FALSE);
 
 	/* disabled */
 	if (priv->disabled)
-		goto out;
+		return TRUE;
 
 	/* check we've got a spec file */
 	spec = g_strdup_printf ("%s/%s/%s.spec.in",
@@ -786,20 +722,20 @@ acb_project_build (AcbProject *project, GError **error)
 	ret = g_file_test (spec, G_FILE_TEST_EXISTS);
 	if (!ret) {
 		g_set_error (error, 1, 0, "spec file was not found: %s", spec);
-		goto out;
+		return FALSE;
 	}
 
 	/* then make tarball */
-	if (TRUE) {
+	if (priv->use_ninja) {
 		ret = acb_project_run (project, "ninja-build dist",
 				       ACB_PROJECT_KIND_CREATING_TARBALL, error);
 		if (!ret)
-			goto out;
+			return FALSE;
 	} else {
 		ret = acb_project_run (project, "make dist",
 				       ACB_PROJECT_KIND_CREATING_TARBALL, error);
 		if (!ret)
-			goto out;
+			return FALSE;
 	}
 
 	/* clean previous build files */
@@ -832,13 +768,12 @@ acb_project_build (AcbProject *project, GError **error)
 				   priv->version, priv->release, alphatag, longdate, spec);
 	ret = g_spawn_command_line_sync (cmdline, &standard_out, NULL, NULL, error);
 	if (!ret)
-		goto out;
+		return FALSE;
 
 	/* save to the new file */
 	dest = g_strdup_printf ("%s/%s.spec", rpmbuild_specs, priv->package_name);
-	ret = g_file_set_contents (dest, standard_out, -1, error);
-	if (!ret)
-		goto out;
+	if (!g_file_set_contents (dest, standard_out, -1, error))
+		return FALSE;
 
 	/* get the tarball */
 	if (g_strstr_len (priv->tarball_name, -1, ".") != NULL)
@@ -860,27 +795,25 @@ acb_project_build (AcbProject *project, GError **error)
 	if (!g_file_test (tarball, G_FILE_TEST_EXISTS)) {
 		g_debug ("zipped tarball %s not found", tarball);
 		g_set_error (error, 1, 0, "cannot find source in %s", priv->path);
-		ret = FALSE;
-		goto out;
+		return FALSE;
 	}
 
 	/* copy tarball .tar.* build root */
 	cmdline2 = g_strdup_printf ("cp %s %s", tarball, rpmbuild_sources);
 	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_COPYING_TARBALL, error);
 	if (!ret)
-		goto out;
+		return FALSE;
 
 	/* build the rpm */
 	cmdline2 = g_strdup_printf ("rpmbuild -ba %s", dest);
 	ret = acb_project_run (project, cmdline2, ACB_PROJECT_KIND_BUILDING_PACKAGE, error);
 	if (!ret)
-		goto out;
+		return FALSE;
 
 	/* increment the release */
 	g_print ("%s...", "Incrementing release");
-	ret = acb_project_bump_release (project, error);
-	if (!ret)
-		goto out;
+	if (!acb_project_bump_release (project, error))
+		return FALSE;
 	g_print ("\t%s\n", "Done");
 
 	/* delete old versions in repo directory */
@@ -901,20 +834,7 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* remove generated file */
 	g_unlink (dest);
-out:
-	g_free (standard_out);
-	g_free (tarball);
-	g_free (cmdline);
-	g_free (cmdline2);
-	g_free (alphatag);
-	g_free (dest);
-	g_free (src);
-	g_free (spec);
-	g_free (rpmbuild_rpms);
-	g_free (rpmbuild_srpms);
-	g_free (rpmbuild_sources);
-	g_free (rpmbuild_specs);
-	return ret;
+	return TRUE;
 }
 
 /**
@@ -929,7 +849,7 @@ acb_project_finalize (GObject *object)
 	g_return_if_fail (object != NULL);
 	g_return_if_fail (ACB_IS_PROJECT (object));
 	project = ACB_PROJECT (object);
-	priv = project->priv;
+	priv = GET_PRIVATE (project);
 
 	g_free (priv->path);
 	g_free (priv->path_build);
@@ -950,8 +870,6 @@ acb_project_class_init (AcbProjectClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
 	object_class->finalize = acb_project_finalize;
-
-	g_type_class_add_private (klass, sizeof (AcbProjectPrivate));
 }
 
 /**
@@ -960,8 +878,8 @@ acb_project_class_init (AcbProjectClass *klass)
 static void
 acb_project_init (AcbProject *project)
 {
-	project->priv = ACB_PROJECT_GET_PRIVATE (project);
-	project->priv->rcs = ACB_PROJECT_RCS_UNKNOWN;
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	priv->rcs = ACB_PROJECT_RCS_UNKNOWN;
 }
 
 /**

@@ -36,10 +36,9 @@ acb_main_process_project_name (const gchar *default_code_path,
 			       gboolean make,
 			       const gchar *rpmbuild_path)
 {
-	gchar *path = NULL;
-	gboolean ret = TRUE;
-	GError *error = NULL;
-	AcbProject *project = NULL;
+	g_autofree gchar *path = NULL;
+	g_autoptr(AcbProject) project = NULL;
+	g_autoptr(GError) error = NULL;
 
 	/* operate on folder */
 	project = acb_project_new ();
@@ -47,42 +46,30 @@ acb_main_process_project_name (const gchar *default_code_path,
 	acb_project_set_rpmbuild_path (project, rpmbuild_path);
 	acb_project_set_name (project, project_name);
 	if (clean) {
-		ret = acb_project_clean (project, &error);
-		if (!ret) {
+		if (!acb_project_clean (project, &error)) {
 			g_print ("Failed to clean: %s\n", error->message);
-			g_error_free (error);
-			goto out;
+			return FALSE;
 		}
 	}
 	if (update) {
-		ret = acb_project_update (project, &error);
-		if (!ret) {
+		if (!acb_project_update (project, &error)) {
 			g_print ("Failed to update: %s\n", error->message);
-			g_error_free (error);
-			goto out;
+			return FALSE;
 		}
 	}
 	if (make) {
-		ret = acb_project_make (project, &error);
-		if (!ret) {
+		if (!acb_project_make (project, &error)) {
 			g_print ("Failed to make: %s\n", error->message);
-			g_error_free (error);
-			goto out;
+			return FALSE;
 		}
 	}
 	if (build) {
-		ret = acb_project_build (project, &error);
-		if (!ret) {
+		if (!acb_project_build (project, &error)) {
 			g_print ("Failed to build: %s\n", error->message);
-			g_error_free (error);
-			goto out;
+			return FALSE;
 		}
 	}
-out:
-	if (project != NULL)
-		g_object_unref (project);
-	g_free (path);
-	return ret;
+	return TRUE;
 }
 
 /**
@@ -92,12 +79,11 @@ static gboolean
 acb_main_ensure_has_path (const gchar *path)
 {
 	gint retval;
-	gchar *folder;
+	g_autofree gchar *folder = NULL;
 
 	/* create leading path */
 	folder = g_path_get_dirname (path);
 	retval = g_mkdir_with_parents (folder, 0777);
-	g_free (folder);
 	return (retval == 0);
 }
 
@@ -107,11 +93,11 @@ acb_main_ensure_has_path (const gchar *path)
 static gchar *
 acb_main_get_code_dir ()
 {
-	GError *error = NULL;
-	GKeyFile *file = NULL;
-	gchar *config_file = NULL;
-	gchar *data = NULL;
 	gchar *code_dir = NULL;
+	g_autofree gchar *config_file = NULL;
+	g_autofree gchar *data = NULL;
+	g_autoptr(GError) error = NULL;
+	g_autoptr(GKeyFile) file = NULL;
 
 	/* find the file, else create it */
 	config_file = g_build_filename (g_get_user_config_dir (),
@@ -127,7 +113,7 @@ acb_main_get_code_dir ()
 
 		/* save to the file */
 		g_file_set_contents (config_file, data, -1, NULL);
-		goto out;
+		return code_dir;
 	}
 
 	/* load from file */
@@ -137,13 +123,8 @@ acb_main_get_code_dir ()
 	if (code_dir == NULL) {
 		g_error ("cannot load: %s", error->message);
 		g_error_free (error);
-		goto out;
+		return NULL;
 	}
-out:
-	g_free (data);
-	g_free (config_file);
-	if (file != NULL)
-		g_key_file_free (file);
 	return code_dir;
 }
 
@@ -153,44 +134,32 @@ out:
 static gchar *
 acb_main_get_rpmbuild_dir ()
 {
-	gchar *data = NULL;
-	gchar *macros = NULL;
 	gchar *rpmbuild_path = NULL;
-	gchar **lines = NULL;
-	gboolean ret;
 	guint i;
+	g_autofree gchar *data = NULL;
+	g_autofree gchar *macros = NULL;
+	g_auto(GStrv) lines = NULL;
 
 	/* get the data from the rpmmacros override */
 	macros = g_build_path (g_get_home_dir (), ".rpmmacros", NULL);
-	ret = g_file_get_contents (macros, &data, NULL, NULL);
-	if (!ret) {
-		rpmbuild_path = g_build_filename (g_get_home_dir (), "rpmbuild", NULL);
-		goto out;
-	}
+	if (!g_file_get_contents (macros, &data, NULL, NULL))
+		return g_build_filename (g_get_home_dir (), "rpmbuild", NULL);
 
 	/* find the right line */
 	lines = g_strsplit (data, "\n", -1);
-	for (i=0; lines[i] != NULL; i++) {
+	for (i = 0; lines[i] != NULL; i++) {
 		if (!g_str_has_prefix (lines[i], "%_topdir"))
 			continue;
 		rpmbuild_path = g_strdup (lines[i]+8);
 		g_strstrip (rpmbuild_path);
 		break;
 	}
-
-out:
-	g_free (data);
-	g_free (macros);
-	g_strfreev (lines);
 	return rpmbuild_path;
 }
 
 int
 main (int argc, char **argv)
 {
-	GError *error = NULL;
-	GDir *dir = NULL;
-	gchar *options_help = NULL;
 	GOptionContext *context;
 	gboolean ret;
 	gboolean verbose = FALSE;
@@ -199,14 +168,15 @@ main (int argc, char **argv)
 	gboolean update = FALSE;
 	gboolean build = FALSE;
 	gboolean make = FALSE;
-	gchar **files = NULL;
-	gchar *code_path = NULL;
-	gchar *rpmbuild_path = NULL;
 	guint i;
 	const gchar *filename;
-	gchar *project_name;
 	gchar *tmp;
-	gchar *user_data = NULL;
+	g_autofree gchar *code_path = NULL;
+	g_autofree gchar *options_help = NULL;
+	g_autofree gchar *rpmbuild_path = NULL;
+	g_autofree gchar *user_data = NULL;
+	g_auto(GStrv) files = NULL;
+	g_autoptr(GError) error = NULL;
 
 	const GOptionEntry options[] = {
 		{ "verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
@@ -244,12 +214,12 @@ main (int argc, char **argv)
 	/* didn't specify any options */
 	if (files == NULL && !clean && !update && !build && !make && !install) {
 		g_print ("%s\n", options_help);
-		goto out;
+		return 0;
 	}
 
 	/* process the list */
 	if (files != NULL) {
-		for (i=0; files[i] != NULL; i++) {
+		for (i = 0; files[i] != NULL; i++) {
 			acb_main_process_project_name (code_path,
 						       files[i],
 						       clean,
@@ -259,6 +229,8 @@ main (int argc, char **argv)
 						       rpmbuild_path);
 		}
 	} else {
+		g_autoptr(GDir) dir = NULL;
+
 		/* try to open */
 		user_data = g_build_filename (g_get_user_data_dir (),
 					      "autocodebuild",
@@ -268,11 +240,12 @@ main (int argc, char **argv)
 			g_warning ("cannot open directory: %s",
 				     error->message);
 			g_error_free (error);
-			goto out;
+			return 1;
 		}
 
 		/* find each */
 		while ((filename = g_dir_read_name (dir))) {
+			g_autofree gchar *project_name = NULL;
 			if (!g_str_has_suffix (filename, ".conf"))
 				continue;
 			project_name = g_strdup (filename);
@@ -285,9 +258,7 @@ main (int argc, char **argv)
 						       build,
 						       make,
 						       rpmbuild_path);
-			g_free (project_name);
 		}
-		g_dir_close (dir);
 	}
 
 	/* all install */
@@ -297,15 +268,9 @@ main (int argc, char **argv)
 		if (!ret) {
 			g_warning ("cannot install packages: %s", error->message);
 			g_error_free (error);
-			goto out;
+			return 1;
 		}
 	}
-out:
-	g_free (user_data);
-	g_free (code_path);
-	g_free (rpmbuild_path);
-	g_free (options_help);
-	g_strfreev (files);
 	return 0;
 }
 

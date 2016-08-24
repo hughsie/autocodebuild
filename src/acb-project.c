@@ -56,6 +56,7 @@ typedef enum {
 struct _AcbProjectPrivate
 {
 	gchar			*path;
+	gchar			*path_build;
 	gchar			*default_code_path;
 	gchar			*rpmbuild_path;
 	gchar			*package_name;
@@ -199,7 +200,7 @@ acb_project_get_from_config_h (AcbProject *project)
 	AcbProjectPrivate *priv = project->priv;
 
 	/* find file */
-	configh = g_build_filename (priv->path, "config.h", NULL);
+	configh = g_build_filename (priv->path_build, "config.h", NULL);
 	if (!g_file_test (configh, G_FILE_TEST_EXISTS))
 		goto out;
 
@@ -277,6 +278,7 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 {
 	gchar *defaults = NULL;
 	AcbProjectPrivate *priv = project->priv;
+	g_autofree gchar *path_build = NULL;
 
 	g_return_if_fail (ACB_IS_PROJECT (project));
 	g_return_if_fail (name != NULL);
@@ -306,6 +308,13 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 		goto out;
 	}
 
+	/* set build dir */
+	path_build = g_build_filename (priv->path, "build", NULL);
+	if (g_file_test (path_build, G_FILE_TEST_EXISTS)) {
+		priv->path_build = g_steal_pointer (&path_build);
+	} else {
+		priv->path_build = g_strdup (priv->path);
+	}
 
 	/* load from config.h */
 	acb_project_get_from_config_h (project);
@@ -441,7 +450,7 @@ acb_project_run (AcbProject *project,
 	g_print ("%s %s...", title, priv->package_name);
 
 	argv = g_strsplit (command_line, " ", -1);
-	ret = g_spawn_sync (priv->path,
+	ret = g_spawn_sync (priv->path_build,
 			    argv,
 			    NULL,
 			    G_SPAWN_SEARCH_PATH,
@@ -781,9 +790,17 @@ acb_project_build (AcbProject *project, GError **error)
 	}
 
 	/* then make tarball */
-	ret = acb_project_run (project, "make dist", ACB_PROJECT_KIND_CREATING_TARBALL, error);
-	if (!ret)
-		goto out;
+	if (TRUE) {
+		ret = acb_project_run (project, "ninja-build dist",
+				       ACB_PROJECT_KIND_CREATING_TARBALL, error);
+		if (!ret)
+			goto out;
+	} else {
+		ret = acb_project_run (project, "make dist",
+				       ACB_PROJECT_KIND_CREATING_TARBALL, error);
+		if (!ret)
+			goto out;
+	}
 
 	/* clean previous build files */
 	g_print ("%s...", "Cleaning previous package files");
@@ -915,6 +932,7 @@ acb_project_finalize (GObject *object)
 	priv = project->priv;
 
 	g_free (priv->path);
+	g_free (priv->path_build);
 	g_free (priv->default_code_path);
 	g_free (priv->rpmbuild_path);
 	g_free (priv->version);

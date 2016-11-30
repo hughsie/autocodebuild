@@ -72,9 +72,6 @@ G_DEFINE_TYPE_WITH_PRIVATE (AcbProject, acb_project, G_TYPE_OBJECT)
 
 #define GET_PRIVATE(o) (acb_project_get_instance_private (o))
 
-/**
- * acb_project_path_suffix_exists:
- **/
 static gboolean
 acb_project_path_suffix_exists (AcbProject *project, const gchar *suffix)
 {
@@ -87,9 +84,6 @@ acb_project_path_suffix_exists (AcbProject *project, const gchar *suffix)
 	return ret;
 }
 
-/**
- * acb_project_write_conf:
- **/
 static gboolean
 acb_project_write_conf (AcbProject *project, GError **error)
 {
@@ -126,9 +120,6 @@ acb_project_write_conf (AcbProject *project, GError **error)
 	return g_file_set_contents (defaults, data, -1, error);
 }
 
-/**
- * acb_project_load_defaults:
- **/
 static gboolean
 acb_project_load_defaults (AcbProject *project)
 {
@@ -168,9 +159,6 @@ acb_project_load_defaults (AcbProject *project)
 	return ret;
 }
 
-/**
- * acb_project_get_from_config_h:
- **/
 static gboolean
 acb_project_get_from_config_h (AcbProject *project)
 {
@@ -217,9 +205,6 @@ acb_project_get_from_config_h (AcbProject *project)
 	return TRUE;
 }
 
-/**
- * acb_project_get_from_meson:
- **/
 static gboolean
 acb_project_get_from_meson (AcbProject *project)
 {
@@ -254,9 +239,6 @@ acb_project_get_from_meson (AcbProject *project)
 	return TRUE;
 }
 
-/**
- * acb_project_set_rpmbuild_path:
- **/
 void
 acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
 {
@@ -269,9 +251,6 @@ acb_project_set_rpmbuild_path (AcbProject *project, const gchar *path)
 	priv->rpmbuild_path = g_strdup (path);
 }
 
-/**
- * acb_project_set_default_code_path:
- **/
 void
 acb_project_set_default_code_path (AcbProject *project, const gchar *path)
 {
@@ -284,9 +263,6 @@ acb_project_set_default_code_path (AcbProject *project, const gchar *path)
 	priv->default_code_path = g_strdup (path);
 }
 
-/**
- * acb_project_set_name:
- **/
 void
 acb_project_set_name (AcbProject *project, const gchar *name)
 {
@@ -359,9 +335,6 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 	g_debug ("disabled:     %i", priv->disabled);
 }
 
-/**
- * acb_project_kind_to_title:
- **/
 static const gchar *
 acb_project_kind_to_title (AcbProjectKind kind)
 {
@@ -386,9 +359,6 @@ acb_project_kind_to_title (AcbProjectKind kind)
 	return NULL;
 }
 
-/**
- * acb_project_get_logfile:
- **/
 static gchar *
 acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 {
@@ -420,9 +390,6 @@ acb_project_get_logfile (AcbProject *project, AcbProjectKind kind)
 				 NULL);
 }
 
-/**
- * acb_project_ensure_has_path:
- **/
 static gboolean
 acb_project_ensure_has_path (const gchar *path)
 {
@@ -435,9 +402,6 @@ acb_project_ensure_has_path (const gchar *path)
 	return (retval == 0);
 }
 
-/**
- * acb_project_run:
- **/
 static gboolean
 acb_project_run (AcbProject *project,
 		 const gchar *command_line,
@@ -512,9 +476,6 @@ acb_project_run (AcbProject *project,
 	return TRUE;
 }
 
-/**
- * acb_project_clean:
- **/
 gboolean
 acb_project_clean (AcbProject *project, GError **error)
 {
@@ -543,9 +504,6 @@ acb_project_clean (AcbProject *project, GError **error)
 	return TRUE;
 }
 
-/**
- * acb_project_update:
- **/
 gboolean
 acb_project_update (AcbProject *project, GError **error)
 {
@@ -593,11 +551,6 @@ acb_project_update (AcbProject *project, GError **error)
 	return TRUE;
 }
 
-/**
- * acb_project_directory_remove_contents:
- *
- * Does not remove the directory itself, only the contents.
- **/
 static gboolean
 acb_project_directory_remove_contents (const gchar *directory)
 {
@@ -624,9 +577,6 @@ acb_project_directory_remove_contents (const gchar *directory)
 	return TRUE;
 }
 
-/**
- * acb_project_bump_release:
- **/
 static gboolean
 acb_project_bump_release (AcbProject *project, GError **error)
 {
@@ -635,9 +585,6 @@ acb_project_bump_release (AcbProject *project, GError **error)
 	return acb_project_write_conf (project, error);
 }
 
-/**
- * acb_project_remove_all_files_with_prefix:
- **/
 static void
 acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *prefix)
 {
@@ -665,9 +612,6 @@ acb_project_remove_all_files_with_prefix (const gchar *directory, const gchar *p
 	}
 }
 
-/**
- * acb_project_copy_file:
- **/
 static gboolean
 acb_project_copy_file (const gchar *src, const gchar *dest)
 {
@@ -682,9 +626,6 @@ acb_project_copy_file (const gchar *src, const gchar *dest)
 	return TRUE;
 }
 
-/**
- * acb_project_move_all_files_with_prefix:
- **/
 static void
 acb_project_move_all_files_with_prefix (const gchar *directory,
 					const gchar *prefix,
@@ -713,9 +654,6 @@ acb_project_move_all_files_with_prefix (const gchar *directory,
 	}
 }
 
-/**
- * acb_project_make:
- **/
 gboolean
 acb_project_make (AcbProject *project, GError **error)
 {
@@ -724,9 +662,6 @@ acb_project_make (AcbProject *project, GError **error)
 				ACB_PROJECT_KIND_BUILDING_LOCALLY, error);
 }
 
-/**
- * acb_project_build:
- **/
 gboolean
 acb_project_build (AcbProject *project, GError **error)
 {
@@ -877,9 +812,6 @@ acb_project_build (AcbProject *project, GError **error)
 	return TRUE;
 }
 
-/**
- * acb_project_finalize:
- **/
 static void
 acb_project_finalize (GObject *object)
 {
@@ -902,9 +834,6 @@ acb_project_finalize (GObject *object)
 	G_OBJECT_CLASS (acb_project_parent_class)->finalize (object);
 }
 
-/**
- * acb_project_class_init:
- **/
 static void
 acb_project_class_init (AcbProjectClass *klass)
 {
@@ -912,9 +841,6 @@ acb_project_class_init (AcbProjectClass *klass)
 	object_class->finalize = acb_project_finalize;
 }
 
-/**
- * acb_project_init:
- **/
 static void
 acb_project_init (AcbProject *project)
 {
@@ -922,11 +848,6 @@ acb_project_init (AcbProject *project)
 	priv->rcs = ACB_PROJECT_RCS_UNKNOWN;
 }
 
-/**
- * acb_project_new:
- *
- * Return value: A new #AcbProject class instance.
- **/
 AcbProject *
 acb_project_new (void)
 {

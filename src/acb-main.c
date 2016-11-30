@@ -24,9 +24,6 @@
 #include "acb-project.h"
 #include "acb-common.h"
 
-/**
- * acb_main_process_project_name:
- **/
 static gboolean
 acb_main_process_project_name (const gchar *default_code_path,
 			       const gchar *project_name,
@@ -72,9 +69,6 @@ acb_main_process_project_name (const gchar *default_code_path,
 	return TRUE;
 }
 
-/**
- * acb_main_ensure_has_path:
- **/
 static gboolean
 acb_main_ensure_has_path (const gchar *path)
 {
@@ -87,9 +81,6 @@ acb_main_ensure_has_path (const gchar *path)
 	return (retval == 0);
 }
 
-/**
- * acb_main_get_code_dir:
- **/
 static gchar *
 acb_main_get_code_dir ()
 {
@@ -128,9 +119,6 @@ acb_main_get_code_dir ()
 	return code_dir;
 }
 
-/**
- * acb_main_get_rpmbuild_dir:
- **/
 static gchar *
 acb_main_get_rpmbuild_dir ()
 {

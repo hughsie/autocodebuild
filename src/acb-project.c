@@ -218,6 +218,43 @@ acb_project_get_from_config_h (AcbProject *project)
 }
 
 /**
+ * acb_project_get_from_meson:
+ **/
+static gboolean
+acb_project_get_from_meson (AcbProject *project)
+{
+	AcbProjectPrivate *priv = GET_PRIVATE (project);
+	guint i;
+	g_autofree gchar *configh = NULL;
+	g_autofree gchar *contents = NULL;
+	g_auto(GStrv) split = NULL;
+
+	/* find file */
+	configh = g_build_filename (priv->path, "meson.build", NULL);
+	if (!g_file_test (configh, G_FILE_TEST_EXISTS))
+		return TRUE;
+
+	/* get contents */
+	if (!g_file_get_contents (configh, &contents, NULL, NULL))
+		return FALSE;
+
+	/* split into lines */
+	split = g_strsplit (contents, "\n", -1);
+	for (i = 0; split[i] != NULL; i++) {
+		gchar *tmp;
+		if (split[i][0] == '\0')
+			continue;
+		tmp = g_strstr_len (split[i], -1, "version : '");
+		if (tmp == NULL)
+			continue;
+		priv->version = g_strdup (tmp + 11);
+		g_strdelimit (priv->version, "'", '\0');
+		break;
+	}
+	return TRUE;
+}
+
+/**
  * acb_project_set_rpmbuild_path:
  **/
 void
@@ -296,6 +333,9 @@ acb_project_set_name (AcbProject *project, const gchar *name)
 
 	/* load from config.h */
 	acb_project_get_from_config_h (project);
+
+	/* load from meson */
+	acb_project_get_from_meson (project);
 
 	/* generate fallbacks */
 	if (priv->tarball_name == NULL)

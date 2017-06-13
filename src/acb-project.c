@@ -793,17 +793,17 @@ acb_project_build (AcbProject *project, GError **error)
 
 	/* delete old versions in repo directory */
 	g_print ("%s...", "Deleting old versions");
-	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/25/x86_64", NULL);
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/26/x86_64", NULL);
 	acb_project_remove_all_files_with_prefix (src, priv->package_name);
-	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/25/SRPMS", NULL);
+	src = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/26/SRPMS", NULL);
 	acb_project_remove_all_files_with_prefix (src, priv->package_name);
 	g_print ("\t%s\n", "Done");
 
 	/* copy into repo directory */
 	g_print ("%s...", "Copying new version");
-	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/25/x86_64", NULL);
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/26/x86_64", NULL);
 	acb_project_move_all_files_with_prefix (rpmbuild_rpms, priv->package_name, dest);
-	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/25/SRPMS", NULL);
+	dest = g_build_filename (priv->rpmbuild_path, "REPOS/fedora/26/SRPMS", NULL);
 	acb_project_move_all_files_with_prefix (rpmbuild_srpms, priv->package_name, dest);
 	g_print ("\t%s\n", "Done");
 
